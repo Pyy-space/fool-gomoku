@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>选择模式 · GomokuAI</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="hub.html">
+    <span class="mark">◉</span>
+    <span>五子棋 AI<span class="sub"> GomokuAI</span></span>
+  </a>
+  <nav class="nav">
+    <a href="hub.html" class="back">‹ 模式</a>
+  </nav>
+  <div class="conn"><span id="dot" class="dot"></span><span id="connText">连接中…</span></div>
+  <span id="ver" class="ver" title="版本">v1.0</span>
+</header>
+
+<main class="page">
+<section class="hub">
+  <h1>选择模式</h1>
+  <p class="sub">选一个开始</p>
+
+  <div class="cards">
+    <a class="card" href="local.html">
+      <div class="icon">♟</div>
+      <h2>人机对弈</h2>
+      <p>你执黑或执白，与 AI 下一盘标准五子棋。选难度、悔棋、提示、复盘，一站式。</p>
+      <span class="go">开始下棋</span>
+    </a>
+  </div>
+</section>
+</main>
+
+<footer class="foot">在线对弈 · 你的每一局都在帮助 AI 进化</footer>
+
+<script src="static/socket.io.min.js"></script>
+<script src="config.js"></script>
+<script src="static/app.js"></script>
+<script>window.PAGE = "hub";</script>
+</body>
+</html>

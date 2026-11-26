@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}实验室{% endblock %}
+
+{% block content %}
+<section id="labLock" class="lockbox hidden">
+  <div class="big">🔒</div>
+  <h2>实验室已上锁</h2>
+  <p class="muted small">这里是「机器对机器自我对弈调参」的实验区，吃 CPU 较多，默认上锁。</p>
+  <input id="labToken" type="password" placeholder="输入访问口令" autocomplete="off">
+  <button id="btnUnlock" class="primary block">解锁</button>
+  <p id="lockMsg" class="muted small"></p>
+</section>
+
+<section id="labMain" class="layout hidden">
+  <aside class="panel side">
+    <h2>这是什么</h2>
+    <p class="small muted">
+      让 AI 自己跟自己下很多局，比较「改过参数的版本」和「原版」谁赢得多，
+      从而找出更好的参数。这跟训练神经网络不是一回事：<b>这里没有需要训练的权重</b>，
+      调的是搜索/评估的超参数（防守权重、候选宽度等）。
+    </p>
+
+    <h2>运行</h2>
+    <label>策略
+      <select id="method">
+        <option value="coordinate" selected>坐标搜索（稳，慢）</option>
+        <option value="spsa">SPSA（快，噪声大）</option>
+      </select>
+    </label>
+    <label>每组对局数 <input id="rounds" type="number" value="2" min="1" max="12"></label>
+    <label>迭代/轮数 <input id="iterations" type="number" value="8" min="1" max="200"></label>
+    <label>每步限时 <input id="timeBudget" type="number" value="0.15" min="0.05" step="0.05"> 秒</label>
+    <label>最大深度 <input id="maxDepth" type="number" value="2" min="1" max="8"></label>
+    <div class="row">
+      <button id="btnStart" class="primary">开始调参</button>
+      <button id="btnStop" class="danger">停止</button>
+    </div>
+    <div class="row">
+      <button id="btnBench" class="block">跑一次基准对局</button>
+    </div>
+
+    <h2>参数空间</h2>
+    <div id="space" class="kv small">—</div>
+  </aside>
+
+  <div class="panel">
+    <div class="statusbar">
+      <span id="state" class="badge">idle</span>
+      <span id="msg" class="muted">未开始</span>
+      <span class="spacer"></span>
+      <span id="elapsed" class="muted"></span>
+    </div>
+    <h3>进度</h3>
+    <div id="log" class="log tall"></div>
+    <h3>当前最优</h3>
+    <pre id="best" class="code">—</pre>
+  </div>
+
+  <aside class="panel side">
+    <h2>结果</h2>
+    <div id="result" class="kv small">—</div>
+    <p class="small muted">
+      结果会保存到 <code>output/tuning/</code>。
+    </p>
+
+    <h2>网友对局数据</h2>
+    <p class="small muted">
+      网友在网页版下的每一局都会记下棋谱。导出后拿回本地喂调参器，让 AI 从网友的棋里变强。
+    </p>
+    <div id="gamesCount" class="kv small">已收集 0 局</div>
+    <button id="btnExportGames" class="ghost block">导出对局数据 (.jsonl)</button>
+    <p id="gamesMsg" class="muted small"></p>
+  </aside>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>window.PAGE = "lab";</script>
+{% endblock %}

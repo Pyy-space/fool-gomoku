@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}人机对弈{% endblock %}
+
+{% block content %}
+<section class="layout">
+  <aside class="panel side">
+    <h2>对局设置</h2>
+    <label>我执
+      <select id="humanColor">
+        <option value="1">黑（先手）</option>
+        <option value="2">白（后手）</option>
+      </select>
+    </label>
+    <label>难度
+      <select id="level">
+        <option value="1">1 · 很快（0.15s）</option>
+        <option value="2">2 · 快速（0.4s）</option>
+        <option value="3" selected>3 · 标准（1s）</option>
+        <option value="4">4 · 较强（2.5s）</option>
+        <option value="5">5 · 最强（5s）</option>
+      </select>
+    </label>
+    <label>棋盘
+      <select id="boardSize">
+        <option value="15" selected>15 × 15（标准）</option>
+        <option value="13">13 × 13</option>
+        <option value="19">19 × 19</option>
+      </select>
+    </label>
+    <label>规则
+      <select id="rules">
+        <option value="casual" selected>无禁手（休闲）</option>
+        <option value="renju">连珠（黑方禁手）</option>
+      </select>
+    </label>
+    <div class="row">
+      <button id="btnNew" class="primary">开始新局</button>
+      <button id="btnUndo">悔棋</button>
+    </div>
+    <div class="row">
+      <button id="btnHint">提示一手</button>
+      <button id="btnResign" class="danger">认输</button>
+    </div>
+
+    <h2>AI 分析</h2>
+    <div id="analysis" class="kv small">等待落子…</div>
+
+    <h2>自我进化</h2>
+    <label class="switchrow">
+      <input type="checkbox" id="learnToggle" checked>
+      <span>下完一局后学习</span>
+    </label>
+    <div id="learnStatus" class="kv small">学习状态：加载中…</div>
+  </aside>
+
+  <div class="panel boardwrap">
+    <div class="statusbar">
+      <span id="turnBadge" class="badge">—</span>
+      <span id="stoneCount" class="muted">0 子</span>
+      <span class="spacer"></span>
+      <span id="thinking" class="thinking hidden">AI 思考中<span class="dots"></span></span>
+    </div>
+    <div id="board" class="board"></div>
+    <div id="result" class="result hidden"></div>
+  </div>
+
+  <aside class="panel side">
+    <h2>最近着法</h2>
+    <ol id="moves" class="moves"></ol>
+    <h2>提示</h2>
+    <p class="small muted">
+      点击棋盘落子。AI 会自动应手。<br>
+      「提示一手」用同一套搜索算出建议点，但不会落子。
+    </p>
+  </aside>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>window.PAGE = "local";</script>
+{% endblock %}

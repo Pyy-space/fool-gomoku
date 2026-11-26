@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}五子棋 AI{% endblock %} · GomokuAI</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+{% block header %}
+<header class="topbar">
+  <a class="brand" href="/hub">
+    <span class="mark">◉</span>
+    <span>五子棋 AI<span class="sub"> GomokuAI</span></span>
+  </a>
+  <nav class="nav">
+    <a href="/hub" class="back">‹ 模式</a>
+    {% block nav %}{% endblock %}
+  </nav>
+  <div class="conn"><span id="dot" class="dot"></span><span id="connText">连接中…</span></div>
+  <span id="ver" class="ver" title="版本">v1.0</span>
+</header>
+{% endblock %}
+
+<main class="page">
+{% block content %}{% endblock %}
+</main>
+
+{% block footer %}
+<footer class="foot">在线对弈 · 你的每一局都在帮助 AI 进化</footer>
+{% endblock %}
+
+<script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

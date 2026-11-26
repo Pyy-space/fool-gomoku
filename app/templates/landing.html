@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}五子棋 AI · 助手{% endblock %}
+
+{% block header %}{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="board-mini"><canvas id="miniBoard"></canvas></div>
+  <div class="veil"></div>
+
+  <div class="inner">
+    <div class="eyebrow">Gomoku · 五子棋智能助手</div>
+    <h1>五子棋 AI</h1>
+    <p class="tagline">与一位会自我进化的五子棋 AI 对弈。<br>在线即玩 · 无需安装 · 对局数据将用于让 AI 变得更强。</p>
+    <div class="cta">
+      <a class="btn-lg primary" href="/hub" style="text-decoration:none; display:inline-block;">进入 →</a>
+    </div>
+    <div class="hint">点击「进入」选择模式</div>
+  </div>
+
+  <div class="footline">
+    在线对弈 · 你的每一局都在帮助 AI 进化
+    <span id="ver" class="ver" title="版本">v1.0</span>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>window.PAGE = "landing";</script>
+{% endblock %}

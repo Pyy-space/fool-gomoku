@@ -1,0 +1,11 @@
+# Render / Linux 纯 API 后端依赖（最小集）。
+#
+# 本仓库（fool-gomoku）已精简掉「识别下棋」相关代码（vision/ control/
+# core/window.py、adapters/window.py），引擎（engine/ core/ adapters/local）
+# 是纯 Python 实现，无 numpy / opencv 依赖。因此后端只需要 Flask 全家桶。
+#
+# 完整版（GomokuAI 目录，含窗口截图 + 鼠标注入 + 棋盘识别）在本地 Windows 运行，
+# 用 requirements.txt（含 numpy / opencv-python / mss / pywin32）。
+
+Flask>=3.0
+Flask-SocketIO>=5.3

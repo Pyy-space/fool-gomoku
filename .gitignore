@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Runtime-generated artifacts
+logs/
+output/
+profiles/learned.json
+
+# Editor / system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Never commit the lab password or local config
+*.local.json
+.env

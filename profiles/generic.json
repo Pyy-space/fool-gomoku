@@ -1,0 +1,37 @@
+{
+  "name": "generic",
+  "description": "通用配置模板：不限定窗口标题，靠自动检测找棋盘。用于任何网页版 / 独立程序的五子棋界面。请在 Web UI 的『窗口』页选中目标窗口后再启动识别。",
+  "window": {
+    "title_regex": "",
+    "class_regex": "",
+    "process_name": "",
+    "match_mode": "search"
+  },
+  "board": {
+    "size": 15,
+    "quad": [],
+    "origin": null,
+    "spacing": null,
+    "axis": "xy",
+    "auto": true,
+    "roi": null
+  },
+  "theme": {
+    "board_bg": null,
+    "black_stone": null,
+    "white_stone": null,
+    "tolerance": 60,
+    "sample_radius": 0
+  },
+  "input": {
+    "method": "mouse",
+    "click_delay": 0.06,
+    "move_duration": 0.0,
+    "offset": [0, 0]
+  },
+  "capture": {
+    "method": "auto",
+    "settle_ms": 120,
+    "bring_to_front": false
+  }
+}
