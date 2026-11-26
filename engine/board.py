@@ -1,14 +1,9 @@
 """棋盘核心类：落子、悔棋、胜负判定、候选点生成、Zobrist 哈希。
 
-设计要点
---------
-* 不依赖任何 UI / 视觉库，可单独测试与基准测试。
-* 一维数组存储，``idx = y * size + x``，与屏幕像素坐标同序（x 右，y 下）。
-* **行打包**：每条横/竖/斜线用 2 bit/格 打包成一个大整数（0=空 1=黑 2=白 3=墙），
-  落子只需 XOR 4 条线各一个 2-bit 字段；取「以某点为中心 9 格窗口」
-  就是一次 ``(line >> shift) & MASK18``。这是引擎速度的关键。
-* 边界外统一填「墙」(3)，窗口提取无需判越界。
-* Zobrist 增量维护，供置换表 (TT) 使用。
+一维数组存储（idx = y*size + x），不依赖任何 UI/视觉库。
+每条横/竖/斜线用 2 bit/格打包成整数，落子 XOR 4 条线各一个 2-bit
+字段；取 9 格窗口即一次移位+掩码。边界外填墙(3)。候选点用 bytearray
+增量维护。
 """
 
 from __future__ import annotations
@@ -87,9 +82,8 @@ def _build_geom(size: int) -> dict:
                 packed |= 3 << (2 * (SPAN + length + k))
             lines[di].append(packed)
 
-    # 3) 每点 → (线号, 绝对位移) × 4
-    #    注意：位移是「绝对」的 —— 线上第 k 个棋格占据 2*(SPAN+k) 位
-    #    （前面有 SPAN 个 2-bit 的墙）。取窗口时再减掉 2*SPAN 让中心对齐。
+    # 3) 每点 → (线号, 绝对位移) × 4。位移绝对：线上第 k 个棋格占 2*(SPAN+k) 位，
+    #    取窗口时再减 2*SPAN 让中心对齐。
     lids = [[0] * (size * size) for _ in range(4)]
     shfs = [[0] * (size * size) for _ in range(4)]
     for di in range(4):
@@ -107,8 +101,7 @@ def _build_geom(size: int) -> dict:
             lids[3][pos], shfs[3][pos],
         )
 
-    # 4) 每点的邻域（切比雪夫距离 <= CANDIDATE_RADIUS，含自身），
-    #    用于增量维护候选点集合，避免每个节点都扫全盘。
+    # 4) 每点的邻域（切比雪夫距离 <= CANDIDATE_RADIUS，含自身），用于增量维护候选点。
     r = CANDIDATE_RADIUS
     ring: list[tuple[int, ...]] = [()] * (size * size)
     for y in range(size):
@@ -148,15 +141,7 @@ def _zobrist(size: int) -> tuple[list[list[int]], int]:
 
 
 class Board:
-    """五子棋棋盘。
-
-    Parameters
-    ----------
-    size:
-        棋盘边长，标准 15。
-    rules:
-        ``"casual"`` 连五即胜无禁手；``"renju"`` 黑棋禁长连/双四/双三。
-    """
+    """五子棋棋盘。size 默认 15；rules 为 casual（无禁手）或 renju（黑禁长连/双四/双三）。"""
 
     __slots__ = ("size", "grid", "moves", "side", "rules",
                  "_zb", "_zb_side", "_hash", "_lines", "_flat", "_flat_ring",

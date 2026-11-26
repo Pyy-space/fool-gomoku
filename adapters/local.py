@@ -1,11 +1,4 @@
-"""本地人机对弈适配器（测试功能一）。
-
-人用鼠标在 Web 棋盘上点，AI 应手。这一层只做"把人的点击和 AI 的应手串起来"，
-真正的棋盘状态在 `core.game.GameSession` 里。
-
-被 Web 端调用时不需要线程：每次 human_move 之后同步跑一次 ai_move 即可
-（AI 思考 1~2 秒，SocketIO 用后台任务避免阻塞请求）。
-"""
+"""本地人机对弈适配器（测试功能一）。把人的点击与 AI 的应手串起来，棋盘状态在 core.game.GameSession。"""
 
 from __future__ import annotations
 

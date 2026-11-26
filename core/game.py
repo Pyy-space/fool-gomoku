@@ -1,15 +1,7 @@
-"""对局会话层：本地人机对弈、窗口自动对战的共用状态机。
+"""对局会话层：人机对弈与自动对战的共用状态机。
 
-为什么单独一层：
-- 测试功能一（人 vs AI）和自动对战（识别窗口 → 同步 → 落子）用到的是**同一套**
-  「棋盘 + 轮次 + AI 出手 + 悔棋」逻辑，只有"棋子从哪来"不同（鼠标点 / 视觉识别）。
-- Web 端要能随时把局面序列化成 JSON 推到前端，所以状态读写都收在这里。
-
-约定
-----
-* 坐标 (x, y)：x 向右、y 向下，与屏幕/截图坐标同序。
-* `human_color` 为 0 表示"双方都由 AI 或外部驱动"（自动对战模式用）。
-* 所有改盘动作都会写入 `moves`，`undo` 依据它回滚，保证可悔棋。
+坐标 (x, y)：x 向右、y 向下。human_color 为 0 表示双方都由 AI/外部驱动。
+所有改盘动作写入 moves，undo 据此回滚。
 """
 
 from __future__ import annotations
@@ -293,7 +285,7 @@ class GameSession:
             rep.conflicts.append((-1, -1, -1, -1))
             return rep
 
-        # 先校验颜色体系是否一致（识别到黑白反了会整盘冲突，直接报出来）
+        # 校验颜色体系是否一致（黑白反了会整盘冲突）。
         for idx, val in enumerate(grid_values):
             x, y = idx % size, idx // size
             mine = self.board.grid[idx]
@@ -306,7 +298,7 @@ class GameSession:
             elif mine in (BLACK, WHITE) and val in (BLACK, WHITE):
                 rep.conflicts.append((x, y, int(mine), int(val)))
 
-        # 冲突太多说明颜色/朝向搞错了，宁可不动
+        # 冲突太多说明颜色/朝向搞错，不动。
         if len(rep.conflicts) > 2:
             return rep
 
@@ -314,8 +306,7 @@ class GameSession:
             self.snapshots.append({"grid": self.board.to_list(),
                                    "side": self.board.side,
                                    "records": len(self.records)})
-            # 不允许回滚时，把内部已有但识别为空的位置补回去，避免"识别漏检
-            # 把真棋子抹掉"。这是自动对战最常见的故障模式。
+            # 不允许回滚时，把内部已有但识别为空的位置补回，避免漏检抹掉真棋子。
             if not auto_removed:
                 vals = list(grid_values)
                 for x, y, c in rep.removed:

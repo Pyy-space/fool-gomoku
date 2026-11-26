@@ -1,9 +1,7 @@
-"""应用级状态容器：把对局、调参、在线学习三件事的运行时对象收在一处。
+"""应用级状态容器：把对局、调参、在线学习的运行时对象收在一处。
 
-Web 端是多线程的（Flask 线程 + 后台线程），所以：
-* 所有可变状态都带上 `threading.RLock`；
-* 长任务（AI 思考、自我对弈调参）都在后台线程跑，只通过
-  `push()` 把事件推给 SocketIO，不阻塞 HTTP 请求。
+多线程（Flask 线程 + 后台线程），可变状态都加 RLock；长任务在后台线程跑，
+通过 push() 推给 SocketIO，不阻塞 HTTP 请求。
 """
 
 from __future__ import annotations

@@ -1,8 +1,4 @@
-"""战术层：必胜 / 必防 / 双威胁 / VCF（连续冲四取胜）。
-
-这一层在搜索之前运行，直接处理掉"一步定生死"的局面，
-避免把宝贵的搜索深度浪费在已经分出胜负的地方。
-"""
+"""战术层：必胜 / 必防 / 双威胁 / VCF（连续冲四取胜）。在搜索前处理一步定生死的局面。"""
 
 from __future__ import annotations
 
@@ -13,17 +9,12 @@ from .patterns import SHAPE_RANK, point_shapes, point_score, shape_name
 # 形状强弱排序
 _RANK = SHAPE_RANK
 
-# 一步成五的判定阈值（见 winning_moves 注释）
+# 一步成五的判定阈值。
 _FIVE_SCORE = 10_000_000
 
 
 def winning_moves(board: Board, color: int) -> list[int]:
-    """color 一步成五的所有点（索引形式）。
-
-    用 `point_score` 的四方向和做判定：FIVE=10_000_000，其余四种形状
-    合计上限 4*120_000=480_000，所以 >= 10_000_000 当且仅当至少一个
-    方向是五连。这比逐方向查表快一倍以上（VCF 内层高频调用）。
-    """
+    """color 一步成五的所有点（索引形式）。用 point_score 四方向和判定。"""
     out = []
     grid = board.grid
     size = board.size

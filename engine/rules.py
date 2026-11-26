@@ -63,11 +63,10 @@ def _count_shapes_at(board: Board, x: int, y: int, color: int) -> tuple[int, int
         if win_windows == 0:
             continue
 
-        # 四：只有一个成五窗口 → 冲四；两个及以上 → 活四（这里按四计）
+        # 四：只有一个成五窗口 → 冲四；两个及以上 → 活四（按四计）。
         fours += 1
         continue
 
-    # 活三：需要更细的判定，单独处理
     open_threes = _count_open_threes(board, x, y, color)
     return fours, open_threes, overline
 
@@ -115,10 +114,7 @@ def _count_open_threes(board: Board, x: int, y: int, color: int) -> int:
 
 
 def forbidden_reason(board: Board, x: int, y: int) -> str | None:
-    """判断黑方在 (x,y) 落子是否为禁手。返回禁手类型或 None。
-
-    规则：成五优先 —— 若该点能成五则不是禁手。
-    """
+    """判断黑方在 (x,y) 落子是否为禁手。成五优先。"""
     if board.rules != "renju":
         return None
     if board.get(x, y) != EMPTY:

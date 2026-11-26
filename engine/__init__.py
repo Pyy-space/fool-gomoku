@@ -18,21 +18,12 @@ from .tactics import double_threat_moves, threat_moves, winning_moves
 
 
 class AI:
-    """五子棋 AI。
+    """五子棋 AI。choose(board) 返回 (x, y) 或 None，不修改传入的 board。
 
-    用法::
-
-        ai = AI(level=3)
-        move = ai.choose(board)   # 返回 (x, y) 或 None
-
-        # 或指定精确参数（自我对弈调参用）：
-        ai = AI(config=EngineConfig.from_dict({"eval.defense_weight": 1.3}))
-
-    ``board`` 是 :class:`engine.board.Board`，调用后不会被修改
-    （搜索内部全部成对 place/undo）。
+    可用 AI(level=3) 或 AI(config=EngineConfig.from_dict({...})) 指定精确参数。
     """
 
-    # 兼容旧接口的档位表（真正的定义在 engine.config.LEVELS）
+    # 难度档位表（真正定义在 engine.config.LEVELS）。
     LEVELS = {
         1: dict(time=0.15, depth=2, vcf=False),
         2: dict(time=0.4, depth=4, vcf=True),
@@ -63,11 +54,11 @@ class AI:
         if board.is_full or board.winner():
             return None
 
-        # 开局：空盘走天元
+        # 空盘走天元。
         if not board.moves and fallback_center:
             c = board.size // 2
             return (c, c)
-        # 第二手贴近对手首子随机一个小偏移，避免每局一样
+        # 第二手在对手首子 ±2 内随机。
         if len(board.moves) == 1 and self.level >= 2 and self.rng is not None:
             mx, my = board.moves[0]
             cand = []

@@ -1,14 +1,8 @@
-"""Web 应用：Flask + Flask-SocketIO 组装（web 版，纯引擎）。
+"""Web 应用：Flask + Flask-SocketIO 组装（web 版纯引擎）。
 
-本仓库（fool-gomoku）是前后端分离的 web 版，只保留纯 Python 引擎能提供的能力：
-人机对弈、在线学习、实验室调参。识别下棋（窗口截图 + 自动落子）依赖 Windows
-专属 API，已从本仓库移除，只在本地完整版（GomokuAI 目录）提供。
-
-页面分工（三层导航）：
-* ``/``         落地页（hero + 进入）
-* ``/hub``      模式选择（人机对弈）
-* ``/local``    本地人机对弈（含在线学习）
-* ``/lab``      实验室（训练=机器对弈调参，彩蛋解锁 + token 鉴权）
+页面：/（落地页）、/hub（模式选择）、/local（人机对弈+在线学习）、
+/lab（实验室调参，彩蛋解锁 + token 鉴权）。识别下棋依赖 Windows 专属
+API，已从本仓库移除，只在本地完整版 GomokuAI/ 提供。
 """
 
 from __future__ import annotations
@@ -23,13 +17,12 @@ from flask_socketio import SocketIO, emit
 
 from .state import STATE
 
-# 实验室访问口令。挂网后陌生人即便找到 /lab 入口，没有口令也调不动调参 API。
-# 可用环境变量 GOMOKU_LAB_TOKEN 覆盖（start.bat / 命令行均可）。
+# 实验室访问口令。可用环境变量 GOMOKU_LAB_TOKEN 覆盖。
 LAB_TOKEN = os.environ.get("GOMOKU_LAB_TOKEN", "gomoku-lab")
 
 
 def _lab_ok(data: dict) -> bool:
-    """校验实验室口令。前后端都做：前端彩蛋负责隐蔽，这里负责真锁。"""
+    """校验实验室口令。"""
     return str(data.get("token") or "") == LAB_TOKEN
 
 

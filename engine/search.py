@@ -1,17 +1,8 @@
 """搜索引擎：迭代加深 αβ + 置换表 + 走法排序 + 杀手走法。
 
-设计取舍
---------
-* 五子棋分支因子大、战术深，**走法排序**比搜索本身更影响速度。
-  排序依据：必胜 > 必防 > 双威胁 > 己方进攻分 + 对方进攻分。
-* **不做静态搜索（quiescence）**。国际象棋的静态搜索是为了解决换子序列的
-  地平线效应，而五子棋里"能形成四"的点非常多，照搬会指数爆炸（实测 1 秒内
-  递归 3889 次却一个根节点都没算完）。五子棋的地平线由 VCF 层处理。
-* 取而代之的是**强制走法收敛**：某方已有成五点（对方挡不住）时，候选集
-  直接收缩到该点，搜索立刻结束。
-* 置换表用 Zobrist，存 (深度, 下界/上界/精确, 最佳走法)。
-* 时间控制：**只有完整跑完的迭代才会替换根节点结果**，
-  这样超时中断不会用不完整的分数覆盖掉上一层有效结果。
+走法排序顺序：必胜 > 必防 > 双威胁 > 进攻分 + 防守分。不做静态搜索
+（五子棋地平线由 VCF 层处理）。只有完整跑完的迭代才替换根节点结果，
+超时中断不会用不完整分数覆盖有效结果。
 """
 
 from __future__ import annotations
@@ -52,11 +43,7 @@ class SearchResult:
 
 
 class Searcher:
-    """αβ 搜索器。
-
-    所有可调参数从 `EngineConfig` 读取，构造后不再变 —— 这样同一个进程里可以
-    同时存在多副不同参数的搜索器（自我对弈调参必需）。
-    """
+    """αβ 搜索器。所有可调参数从 EngineConfig 读取，构造后不变。"""
 
     def __init__(self, evaluator: Optional[Evaluator] = None,
                  config: Optional[EngineConfig] = None,
@@ -66,7 +53,7 @@ class Searcher:
                  tt_size: Optional[int] = None):
         self.config = config or EngineConfig()
         sc = self.config.search
-        # 显式传参优先于 config，便于临时覆盖
+        # 显式传参优先于 config。
         self.time_budget = sc.time_budget if time_budget is None else time_budget
         self.max_depth = sc.max_depth if max_depth is None else max_depth
         self.use_vcf = sc.use_vcf if use_vcf is None else use_vcf
@@ -139,7 +126,7 @@ class Searcher:
             if not complete or self.aborted:
                 break
             if abs(best_score) > MATE / 2:
-                break                      # 已确认必胜或必败
+                break                      # 已确认必胜/必败
             if time.perf_counter() > self._deadline:
                 break
 
@@ -204,7 +191,7 @@ class Searcher:
             self.aborted = True
             return 0.0
 
-        # 终局：上一手已形成五连（上一手是对手下的 → 我方输）
+        # 终局：上一手已成五连（对手下的 → 我方输）。
         if board.moves:
             lx, ly = board.moves[-1]
             if board.is_win_at(lx, ly):
@@ -284,11 +271,9 @@ class Searcher:
     # -- 强制走法收敛 + 走法排序 --------------------------------------------
     def _ordered_moves(self, board: Board, color: int, depth: int,
                        tt_move=None, ply: int = 0) -> list:
-        """一次扫描同时完成：成五点检测（强制收敛）+ 启发式排序。
+        """一次扫描完成成五点检测（强制收敛）与启发式排序。
 
-        `point_pair_score` 返回的四方向和即可判定成五：FDIR_SHAPE_SCORE 里
-        FIVE=10_000_000，其余四种形状合计最多 4*120_000=480_000，
-        所以 atk >= _FIVE_SCORE 当且仅当至少一个方向是五连。
+        atk >= _FIVE_SCORE 当且仅当至少一个方向是五连。
         """
         size = board.size
         opp = opponent(color)
@@ -317,7 +302,7 @@ class Searcher:
                 v += sort_killer
             scored.append((v, x, y))
 
-        # 我能成五 → 只走这一点；对手能成五 → 只能堵（堵不完时全列出）
+        # 我能成五→只走这一点；对手能成五→堵（堵不完全列出）。
         if five_me:
             five_me.sort(reverse=True)
             return [(x, y) for _, x, y in five_me[:1]]

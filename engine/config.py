@@ -1,22 +1,8 @@
 """引擎超参数集中定义。
 
-为什么需要这一层：
-
-1. 原项目的「超参数」写死在代码里（`UCB_C = 0.2`），想调只能改源码重编译。
-2. 本项目的 αβ 引擎有一批真正影响棋力的旋钮（防守权重、候选宽度、VCF 深度…），
-   它们的**最优值和棋盘风格强相关**，没有理论解析解 —— 只能靠实测。
-3. 测试功能二（自我对弈调参）要把这些参数当搜索空间来打分，必须能
-   「在运行时构造一份改动的参数 → 跑一局 → 拿胜负」。所以参数必须是数据，不是常量。
-
-用法：
-    from engine.config import EngineConfig
-    cfg = EngineConfig()
-    cfg.defense_weight = 1.25          # 直接改字段
-    cfg = EngineConfig.from_dict({"search.width_deep": 20})
-    cfg.save("profiles/tuned.json")
-
-所有搜索/评估代码通过 `Searcher(config=...)` / `Evaluator(defense_weight=...)`
-接收，不读模块级常量 —— 保证两副参数可以同时存在于一个进程里（自我对弈必需）。
+提供 EvalConfig / SearchConfig / EngineConfig 三个数据对象，支持
+flat()/from_dict()/copy()/update()/to_dict()/save()/load()，以及
+TUNING_SPACE 搜索空间、LEVELS 难度档位、config_for_level()。
 """
 
 from __future__ import annotations
@@ -26,7 +12,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict
 
-# 项目根目录：engine/ 的上一级。全项目统一用相对路径，便于整体搬迁。
+# 项目根目录（engine/ 的上一级）。
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -34,15 +20,13 @@ ROOT = Path(__file__).resolve().parent.parent
 class EvalConfig:
     """棋型评估相关参数。"""
 
-    # 防守权重：> 1 表示"堵对手"比"自己成形状"更重要。
-    # 五子棋里漏防一个四直接输，而自己多一个活三不一定赢，所以通常 > 1。
+    # 防守权重（>1 表示防守优先）。
     defense_weight: float = 1.15
 
-    # 单点势能封顶。活四单方向就 120_000，不封顶会让一步活四完全主导评估，
-    # 使搜索看不见"对手也在成四"这种平衡局面。
+    # 单点势能封顶。
     point_cap: int = 200_000
 
-    # 直接判胜/判负的分值（搜索里用，与 MATE 同量级）。
+    # 判胜/判负分值。
     win_score: int = 1_000_000_000
 
 
@@ -53,13 +37,12 @@ class SearchConfig:
     time_budget: float = 2.0
     max_depth: int = 8
 
-    # 候选宽度（按剩余深度分级）。五子棋分支太多，必须剪。
+    # 候选宽度（按剩余深度分级）。
     width_deep: int = 16
     width_mid: int = 12
     width_shallow: int = 8
 
-    # 走法排序时防守项的权重（与评估里的 defense_weight 独立：
-    # 一个决定"局面值多少钱"，一个决定"先算哪个"）。
+    # 走法排序时防守项的权重。
     sort_defense: float = 1.15
 
     use_vcf: bool = True
@@ -69,7 +52,7 @@ class SearchConfig:
     # 置换表容量（2 的幂）。
     tt_bits: int = 19
 
-    # 杀手走法的奖励分（排序用）。必须远大于普通棋型分，但不能盖过必胜分。
+    # 杀手走法奖励分与必胜走法分（排序用）。
     sort_killer: int = 10_000_000
     sort_mate: int = 10 ** 12
 
@@ -81,7 +64,7 @@ class EngineConfig:
     eval: EvalConfig = field(default_factory=EvalConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
 
-    # ---- 扁平读写（自我对弈调参用） -------------------------------------
+    # ---- 扁平读写 --------------------------------------------------------
     def flat(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for f in fields(self):
