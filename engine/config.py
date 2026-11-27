@@ -140,12 +140,15 @@ TUNING_SPACE: Dict[str, tuple] = {
 }
 
 # 面向用户的预设档位（难度）。
+# 实测结论：defense_weight 峰值在默认 1.15；时间预算拐点约 0.5~0.6s。
 LEVELS: Dict[int, Dict[str, Any]] = {
-    1: {"search.time_budget": 0.15, "search.max_depth": 2, "search.use_vcf": False},
-    2: {"search.time_budget": 0.40, "search.max_depth": 4},
-    3: {"search.time_budget": 1.00, "search.max_depth": 6},
-    4: {"search.time_budget": 2.50, "search.max_depth": 8},
-    5: {"search.time_budget": 5.00, "search.max_depth": 10},
+    1: {"search.time_budget": 0.06, "search.max_depth": 2,
+        "search.width_deep": 5, "search.width_mid": 5,
+        "search.use_vcf": False},
+    2: {"search.time_budget": 0.80, "search.max_depth": 14,
+        "search.width_deep": 14, "search.width_mid": 12},
+    3: {"search.time_budget": 2.00, "search.max_depth": 20,
+        "search.width_deep": 18, "search.width_mid": 14},
 }
 
 

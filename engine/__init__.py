@@ -25,11 +25,9 @@ class AI:
 
     # 难度档位表（真正定义在 engine.config.LEVELS）。
     LEVELS = {
-        1: dict(time=0.15, depth=2, vcf=False),
-        2: dict(time=0.4, depth=4, vcf=True),
-        3: dict(time=1.0, depth=6, vcf=True),
-        4: dict(time=2.5, depth=8, vcf=True),
-        5: dict(time=5.0, depth=10, vcf=True),
+        1: dict(time=0.06, depth=2, vcf=False),
+        2: dict(time=0.80, depth=14, vcf=True),
+        3: dict(time=2.0, depth=20, vcf=True),
     }
 
     def __init__(self, level: int = 3, rules: str = RULES_CASUAL,

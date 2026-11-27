@@ -1021,16 +1021,16 @@
 
   // 难度档位。时间预算是上限、不是目标：搜索跑满 max_depth 就提前收工，
   // 所以 max_depth 给得足够深，让时间真正花在加深上而不是空转。
-  // 宽度别放大——实测同一时间预算下收窄宽度换深度更强。
-  // 三档：敷衍 / 认真 / 全力。参数由循环赛实测选出，不是拍脑袋定的。
-  // 实测依据：w14@1.2s 对 w12@0.6s 胜率 100%；w12@2.0s 对 w12@0.6s 胜率 70%；
-  // 宽度低于 10 会掉棋力，所以最弱档靠「时间极少 + 深度极浅 + 大量随机」变弱，而不是靠收窄宽度。
+  // 三档：敷衍 / 认真 / 全力。参数由自对弈循环赛实测选出。
+  // 实测结论：defense_weight 峰值就在默认 1.15（1.40/1.70 反而更弱）；
+  // 时间预算拐点在 0.5~0.6s，再往上收益递减（0.8s vs 0.4s 仅 56%）。
+  // 所以「认真」档用 0.8s 榨出拐点后的收益，「全力」档不加时间、靠加深加宽。
   var LEVELS = {
     1: { time_budget: 0.06, max_depth: 2, width_deep: 5, width_mid: 5, width_shallow: 4,
          use_vcf: false, root_jitter: 0.55, root_pool_tol: 0.45, root_pool_max: 6 },
-    2: { time_budget: 0.60, max_depth: 14, width_deep: 12, width_mid: 10, width_shallow: 8,
+    2: { time_budget: 0.80, max_depth: 14, width_deep: 14, width_mid: 12, width_shallow: 8,
          use_vcf: true, vcf_max_depth: 16, root_jitter: 0.03, root_pool_tol: 0.010, root_pool_max: 4 },
-    3: { time_budget: 2.00, max_depth: 18, width_deep: 16, width_mid: 14, width_shallow: 10,
+    3: { time_budget: 2.00, max_depth: 20, width_deep: 18, width_mid: 14, width_shallow: 10,
          use_vcf: true, vcf_max_depth: 26, root_jitter: 0.01, root_pool_tol: 0.006, root_pool_max: 3 }
   };
 

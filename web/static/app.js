@@ -615,6 +615,32 @@ function pageLocal() {
   }
 
   /* ---------- 侧栏按钮 ---------- */
+  function saveRecord() {
+    if (!board || board.moves.length === 0) {
+      say("这局还没落子，没东西可存。", "warn");
+      return;
+    }
+    const body = {
+      size: board.size,
+      rules: rules,
+      human_color: humanColor,
+      winner: board.winner(),
+      moves: board.moves,
+      config: learner ? learner.snapshot() : {},
+    };
+    const text = JSON.stringify(body, null, 2);
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `gomoku_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    say(P.hint(), "hint");
+  }
+
   function undo() {
     if (busy) return;
     const n = board.moves.length;
@@ -668,6 +694,7 @@ function pageLocal() {
   $("#btnUndo").addEventListener("click", undo);
   $("#btnHint").addEventListener("click", hint);
   $("#btnResign").addEventListener("click", resign);
+  $("#btnSave").addEventListener("click", saveRecord);
   $("#learnToggle").addEventListener("change", (e) => {
     if (!e.target.checked) { learner = null; drawLearn(); }
   });
