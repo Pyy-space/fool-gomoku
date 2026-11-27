@@ -386,9 +386,27 @@ function pageLocal() {
   }
 
   /* ---------- 台词 ---------- */
-  function say(text, kind) {
+  function say(sp, kind) {
     if (!els.persona) return;
-    els.persona.textContent = text;
+    // sp 可能是对象（{name,title,avatar,hue,text}）或纯字符串，兼容两者
+    const o = (sp && typeof sp === "object") ? sp : { text: String(sp) };
+    els.persona.innerHTML = "";
+    if (o.avatar) {
+      const av = el("span", "p-avatar");
+      av.textContent = o.avatar;
+      av.style.background =
+        "linear-gradient(135deg," + (o.hue || "#e2a458") + ", #3a3f4a)";
+      els.persona.appendChild(av);
+    }
+    const body = el("span", "p-body");
+    if (o.name) {
+      const who = el("span", "p-who", o.name);
+      if (o.title) who.appendChild(el("span", "p-title", " · " + o.title));
+      body.appendChild(who);
+    }
+    body.appendChild(el("span", "p-text", o.text));
+    els.persona.appendChild(body);
+
     els.persona.className = "persona" + (kind ? " " + kind : "");
     els.persona.classList.remove("hidden");
     els.persona.style.animation = "none";
@@ -518,7 +536,7 @@ function pageLocal() {
 
   function scheduleAi() {
     if (over) return;
-    setThinking(true, P.think());
+    setThinking(true, P.think().text);
     // 给浏览器一帧时间把「正在想」画出来，再开始算
     setTimeout(aiMove, 40);
   }
@@ -563,7 +581,6 @@ function pageLocal() {
       : outcome === "lose" ? "你输了" : "平局";
 
     say(P.line(outcome), outcome);
-
     if (learner) {
       const aiColor = humanColor === 1 ? 2 : 1;
       const r = learner.applyOutcome(w, aiColor, board.moves);
