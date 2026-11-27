@@ -39,17 +39,20 @@
   var SHAPE_RANK = [0, 1, 2, 3, 4, 5, 6, 7];
 
   // 单方向形状分（与 Python DIR_SHAPE_SCORE 完全一致）
+  // OPEN_THREE 原本 3000，用固定开局集 + 节点预算的循环赛实测放大到 5400
+  // 显著更强（48 局样本 62.5%，z=1.73）：活三的威胁比原手写值更值钱。
+  // 再往上（7200+）收益消失甚至反转，说明这是峰值平台。
   var SHAPE_SCORE = {
     NONE: 0,
     TWO: 15,
     OPEN_TWO: 120,
     THREE: 300,
-    OPEN_THREE: 3000,
+    OPEN_THREE: 5400,
     FOUR: 9000,
     OPEN_FOUR: 120000,
     FIVE: 10000000
   };
-  var SCORE_BY_IDX = [0, 15, 120, 300, 3000, 9000, 120000, 10000000];
+  var SCORE_BY_IDX = [0, 15, 120, 300, 5400, 9000, 120000, 10000000];
 
   var FIVE_SCORE = 10000000;     // 一步成五阈值
   var WIN_LEN = 5;
@@ -381,6 +384,30 @@
     var v = t[code];
     if (v < 0) { v = SCORE_BY_IDX[_shapeIndexOf(color, code)]; t[code] = v; }
     return v;
+  }
+
+  /* 运行期替换 8 个棋型分数。现有的势能评估（_pointScoreAt → _scoreFast）
+     走的正是 SCORE_BY_IDX，所以改这里等价于改评估函数。
+     必须同时清掉 _SCORE_TBL（那是「窗口码→分数」的直查缓存，不清会用到旧值）。
+     下标 0 = NONE 固定为 0；index 由 SHAPE_INDEX 定义。 */
+  function setShapeScores(arr) {
+    if (!arr || arr.length !== 8) throw new Error("shape scores 必须是长度 8 的数组");
+    for (var i = 1; i < 8; i++) {
+      var v = Math.max(0, Math.round(arr[i]));
+      SCORE_BY_IDX[i] = v;
+    }
+    SCORE_BY_IDX[0] = 0;
+    for (var c = 0; c < 4; c++) _SCORE_TBL[c] = null;
+    _shapeMemoCacheReset();
+    return SCORE_BY_IDX.slice();
+  }
+
+  function shapeScores() { return SCORE_BY_IDX.slice(); }
+
+  /* 清掉形状 memo。分数变了以后 memo 里存的是「形状编号」（不是分数），
+     其实可以不比，但直查表一定要清；这里一并做，省得漏。 */
+  function _shapeMemoCacheReset() {
+    for (var c = 0; c < 3; c++) _SHAPE_MEMO[c] = null;
   }
 
   /* =======================================================================
@@ -1040,6 +1067,49 @@
     return total;
   }
 
+  /* 统计 color 在各候选空点、四个方向上形成的棋型个数，返回 Int32Array(8)，
+     下标即形状编号（NONE..FIVE）。这是线性评估模型的特征向量。 */
+  function _shapeCounts(bd, color, buf, cnt, out) {
+    var grid = bd.grid, sh = color << 8, d, i, idx, iv;
+    var sums = out || new Int32Array(8);
+    for (i = 0; i < 8; i++) sums[i] = 0;
+    var memo = _shapeMemo(color);
+    for (i = 0; i < cnt; i++) {
+      idx = buf[i];
+      if (grid[idx] !== EMPTY) continue;
+      _fillWin4(bd, idx);
+      for (d = 0; d < 4; d++) {
+        var code = _W4[d] | sh;
+        iv = memo[code];
+        if (iv < 0) iv = _shapeIndexOf(color, code);
+        sums[iv]++;
+      }
+    }
+    return sums;
+  }
+
+  // 线性评估权重：前 8 个是「我」的各形状权重，后 8 个是「对手」的。
+  // 默认由 SHAPE_SCORE 推出（对手权重 = 形状分 × defense_weight），
+  // 拟合脚本 tools/_fit_weights.js 会覆盖它。
+  var EVAL_W = null;
+
+  function _defaultEvalW() {
+    var w = new Float64Array(16);
+    for (var i = 0; i < 8; i++) { w[i] = SCORE_BY_IDX[i]; w[8 + i] = SCORE_BY_IDX[i] * 1.15; }
+    return w;
+  }
+
+  function evalWeights() {
+    if (!EVAL_W) EVAL_W = _defaultEvalW();
+    return EVAL_W;
+  }
+
+  function setEvalWeights(arr) {
+    if (!arr || arr.length !== 16) throw new Error("eval weights 必须是长度 16 的数组");
+    EVAL_W = Float64Array.from(arr);
+    return EVAL_W;
+  }
+
   // 防守权重与单点封顶从 cfg 读。以前在这里写死 1.15 / 200000，
   // 导致调参和在线学习改 defense_weight 完全不起作用。
   function _evaluate(bd, side, cfg) {
@@ -1049,6 +1119,42 @@
     var me = _threatPotential(bd, side, buf, cnt, cap);
     var opp = _threatPotential(bd, 3 - side, buf, cnt, cap);
     return me - dw * opp;
+  }
+
+  var _linBufA = new Int32Array(8), _linBufB = new Int32Array(8);
+
+  /* 线性评估：Σ 权重 × 棋型个数。没有单点封顶，数值尺度与 _evaluate 不同，
+     两套不可混用（用 cfg.linear_eval 切换）。
+     权重可能很大（拟合出来的），必须夹在 ±EVAL_CAP 内，
+     否则评估值会越过 MATE 污染「几步必杀」的判定。 */
+  var EVAL_CAP = 2e7;
+  function _evaluateLinear(bd, side, cfg) {
+    var buf = bd._geom.evalBuf, cnt = _fillNear(bd, buf);
+    var W = evalWeights();
+    var my = _shapeCounts(bd, side, buf, cnt, _linBufA);
+    var op = _shapeCounts(bd, 3 - side, buf, cnt, _linBufB);
+    var v = 0;
+    for (var i = 0; i < 8; i++) v += W[i] * my[i] - W[8 + i] * op[i];
+    if (v > EVAL_CAP) return EVAL_CAP;
+    if (v < -EVAL_CAP) return -EVAL_CAP;
+    return v;
+  }
+
+  /* 叶子评估入口。cfg.linear_eval 为真时走拟合权重的线性模型。 */
+  function _leafEval(bd, side, cfg) {
+    if (cfg && cfg.linear_eval) return _evaluateLinear(bd, side, cfg);
+    return _evaluate(bd, side, cfg);
+  }
+
+  /* 对外：取线性模型的特征向量（16 维）。前 8 个是 side 的棋型计数，
+     后 8 个是对手的。评估值 = Σ W[i]*f[i] - Σ W[8+i]*f[8+i]。 */
+  function evalFeatures(bd, side) {
+    var buf = bd._geom.evalBuf, cnt = _fillNear(bd, buf);
+    var out = new Float64Array(16);
+    var my = _shapeCounts(bd, side, buf, cnt, _linBufA);
+    var op = _shapeCounts(bd, 3 - side, buf, cnt, _linBufB);
+    for (var i = 0; i < 8; i++) { out[i] = my[i]; out[8 + i] = op[i]; }
+    return out;
   }
 
   function _terminalScore(bd, side) {
@@ -1089,7 +1195,10 @@
     node_limit: 0,
     // 第几个走法之后开始做 LMR（减层搜索）。0 = 关闭。
     // 实测在现有节点预算下无收益（50% vs 50%），默认关闭，留作可选项。
-    lmr_min: 0
+    lmr_min: 0,
+    // 为真时叶子评估走「棋型计数 × 拟合权重」的线性模型（见 _evaluateLinear）。
+    // 默认关闭，保持网页对局行为不变。
+    linear_eval: false
   };
 
   // 难度档位。时间预算是上限、不是目标：搜索跑满 max_depth 就提前收工，
@@ -1151,6 +1260,7 @@
     out.q_node_limit = out.q_node_limit | 0;
     out.node_limit = out.node_limit | 0;
     out.lmr_min = out.lmr_min | 0;
+    out.linear_eval = !!out.linear_eval;
     out.tt_limit = Math.pow(2, out.tt_bits | 0);
     return out;
   }
@@ -1331,9 +1441,9 @@
   // 「对手已经四连我还在算平静局面」这种局面算成大优，这是漏防的主因。
   // 只处理「一步成五」这一层：再往下扩展的收益远小于成本。
   Searcher.prototype._quiesce = function (bd, alpha, beta, ply) {
-    if (this.qLimit <= 0) return _evaluate(bd, bd.side, this.cfg);
+    if (this.qLimit <= 0) return _leafEval(bd, bd.side, this.cfg);
     this.qnodes++;
-    if (ply > 12 || this.qnodes > this.qLimit) return _evaluate(bd, bd.side, this.cfg);
+    if (ply > 12 || this.qnodes > this.qLimit) return _leafEval(bd, bd.side, this.cfg);
 
     var side = bd.side, opp = 3 - side;
     var buf = bd._geom.candBuf, cnt = _fillNear(bd, buf);
@@ -1364,7 +1474,7 @@
       return sc;
     }
 
-    return _evaluate(bd, side, this.cfg);
+    return _leafEval(bd, side, this.cfg);
   };
 
   Searcher.prototype._negamax = function (bd, depth, alpha, beta, ply) {
@@ -2032,6 +2142,14 @@
     hasFive: function (shapes) { return _hasShape(shapes, FIVE); },
     isDoubleFour: _isDoubleFour,
     isDoubleThree: _isDoubleThree,
+    // 线性评估权重的读 / 写（tools/_fit_weights.js 用）
+    evalWeights: evalWeights,
+    setEvalWeights: setEvalWeights,
+    defaultEvalWeights: _defaultEvalW,
+    evalFeatures: evalFeatures,
+    // 棋型分数（= 势能评估的实际权重），运行期可替换
+    shapeScores: shapeScores,
+    setShapeScores: setShapeScores,
     version: "1.0.0"
   };
 
