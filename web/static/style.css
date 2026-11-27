@@ -108,7 +108,7 @@ a { color: inherit; }
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr) 252px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 @media (max-width: 1200px) {
   .layout { grid-template-columns: 230px minmax(0, 1fr) 230px; }
@@ -127,6 +127,9 @@ a { color: inherit; }
   box-shadow: 0 8px 32px rgba(0,0,0,.35);
 }
 .panel.side { display: flex; flex-direction: column; gap: 12px; }
+.panel.side .fill { flex: 1; }
+/* 分析面板固定高度，不随落子数变化 */
+.analysis-box { height: 178px; overflow: auto; }
 .panel h2 {
   font-size: 12px; font-weight: 700; color: var(--muted);
   text-transform: uppercase; letter-spacing: 1px;
@@ -351,9 +354,10 @@ pre.code {
 /* ---------- 着法列表 ---------- */
 .moves {
   margin: 0; padding-left: 22px; font-size: 12px;
-  max-height: 280px; overflow: auto; color: var(--muted);
+  overflow: auto; color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.moves.fill { flex: 1; min-height: 200px; max-height: 46vh; }
 .moves li { padding: 2px 0; }
 .moves li.ai { color: var(--gold2); }
 .moves li.sync { color: #7e9bd4; }

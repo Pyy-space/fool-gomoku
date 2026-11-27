@@ -600,10 +600,8 @@ function pageLocal() {
   /* ---------- 侧栏按钮 ---------- */
   function undo() {
     if (busy) return;
-    for (let i = 0; i < 2; i++) {
-      if (!board.moves.length) break;
-      board.undo();
-    }
+    const n = board.moves.length;
+    for (let i = 0; i < 2 && board.moves.length; i++) board.undo();
     over = false;
     reported = false;
     els.result.classList.add("hidden");
@@ -611,6 +609,7 @@ function pageLocal() {
     setThinking(false);
     draw();
     showAnalysis(null);
+    if (board.moves.length < n) say(P.undo(), "warn");
     if (board.side !== humanColor) scheduleAi();
   }
 
@@ -623,7 +622,7 @@ function pageLocal() {
       showAnalysis(r);
       if (r.move) {
         view.setHint({ x: r.move.x, y: r.move.y });
-        say("棋盘上那个发光的点，我看行。", "hint");
+        say(P.hint(), "hint");
       }
     });
   }
