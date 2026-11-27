@@ -1084,15 +1084,21 @@
     root_pool_tol: 0.02,
     root_pool_max: 6,
     q_width: 8,
-    q_node_limit: 4000
+    q_node_limit: 4000,
+    // >0 时改用节点预算（而非墙钟）。默认 0 = 墙钟，网页对局行为不变。
+    node_limit: 0,
+    // 第几个走法之后开始做 LMR（减层搜索）。0 = 关闭。
+    // 实测在现有节点预算下无收益（50% vs 50%），默认关闭，留作可选项。
+    lmr_min: 0
   };
 
   // 难度档位。时间预算是上限、不是目标：搜索跑满 max_depth 就提前收工，
   // 所以 max_depth 给得足够深，让时间真正花在加深上而不是空转。
-  // 三档：敷衍 / 认真 / 全力。参数由自对弈循环赛实测选出。
-  // 实测结论：defense_weight 峰值就在默认 1.15（1.40/1.70 反而更弱）；
-  // 时间预算拐点在 0.5~0.6s，再往上收益递减（0.8s vs 0.4s 仅 56%）。
-  // 所以「认真」档用 0.8s 榨出拐点后的收益，「全力」档不加时间、靠加深加宽。
+  // 三档：敷衍 / 认真 / 全力。
+  // 宽度/防守权重都用固定开局集 + 节点预算的循环赛扫过（可复现，同参数互下恒为 50%）：
+  // 12~26 区间内各宽度差异都在噪声内（12 局样本标准误差约 14%），
+  // defense_weight 峰值就在默认 1.15，时间预算拐点在 0.5~0.6s。
+  // 也就是说这套 αβ + 手工棋型评估已经接近上限，继续微调收益极小。
   var LEVELS = {
     1: { time_budget: 0.06, max_depth: 2, width_deep: 5, width_mid: 5, width_shallow: 4,
          use_vcf: false, root_jitter: 0.55, root_pool_tol: 0.45, root_pool_max: 6 },
@@ -1143,6 +1149,8 @@
     out.root_pool_max = out.root_pool_max | 0;
     out.q_width = out.q_width | 0;
     out.q_node_limit = out.q_node_limit | 0;
+    out.node_limit = out.node_limit | 0;
+    out.lmr_min = out.lmr_min | 0;
     out.tt_limit = Math.pow(2, out.tt_bits | 0);
     return out;
   }
@@ -1156,8 +1164,13 @@
     this.nodes = 0;
     this.qnodes = 0;
     this.qLimit = (cfg.q_node_limit === undefined) ? 4000 : (cfg.q_node_limit | 0);
+    // 节点上限（>0 时按节点数而不是墙钟计时）。用于调参对局：墙钟会让两次
+    // 同参数对局跑出不同结果，A/B 就没法复现。
+    this.nodeLimit = cfg.node_limit | 0;
     this.aborted = false;
     this.deadline = 0;
+    // 用节点预算时把墙钟上限放开，否则两套中止条件会互相干扰。
+    this.timeDisabled = this.nodeLimit > 0;
   }
 
   Searcher.prototype._rememberKiller = function (ply, mv) {
@@ -1356,7 +1369,12 @@
 
   Searcher.prototype._negamax = function (bd, depth, alpha, beta, ply) {
     this.nodes++;
-    if ((this.nodes & 127) === 0 && now() > this.deadline) {
+    if (this.nodeLimit > 0) {
+      if (this.nodes >= this.nodeLimit) {
+        this.aborted = true;
+        return 0;
+      }
+    } else if ((this.nodes & 127) === 0 && now() > this.deadline) {
       this.aborted = true;
       return 0;
     }
@@ -1388,6 +1406,7 @@
     var moves = this._orderedMoves(bd, side, depth, ttMove, ply);
     if (!moves.length) return 0;
 
+    var lmr = this.cfg.lmr_min;
     var best = -INF, bestMv = -1, alpha0 = alpha;
     for (var i = 0; i < moves.length; i++) {
       if (this.aborted) return 0;
@@ -1396,6 +1415,14 @@
       var score;
       if (_winAtIdx(bd, mv)) {
         score = MATE - (ply + 1);
+      } else if (lmr > 0 && i >= lmr && depth >= 4) {
+        // 靠后的走法先按减 1 层搜一遍。棋型排序已经把好棋放前面，
+        // 后面的通常是废棋；减层能省下节点给真正要看的线。
+        // 若这手在浅一层里仍超过 alpha，说明有翻盘可能，再补一次全深度搜索。
+        score = -this._negamax(bd, depth - 2, -alpha - 1, -alpha, ply + 1);
+        if (score > alpha && !this.aborted) {
+          score = -this._negamax(bd, depth - 1, -beta, -alpha, ply + 1);
+        }
       } else {
         score = -this._negamax(bd, depth - 1, -beta, -alpha, ply + 1);
       }
@@ -1419,7 +1446,7 @@
     this.nodes = 0;
     this.qnodes = 0;
     this.aborted = false;
-    this.deadline = t0 + this.cfg.time_budget * 1000;
+    this.deadline = this.timeDisabled ? Infinity : t0 + this.cfg.time_budget * 1000;
     this.killers = [];
     if (this.tt.size > this.ttLimit) this.tt.clear();
 
