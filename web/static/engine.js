@@ -107,8 +107,10 @@
       lineCells[3].push(anti);
     }
 
-    // 打包：低 4 格是前置墙，接着是棋盘格，再后 4 格后置墙。
-    var direct = (2 * (size + 8)) > 52;   // 超过 52 位：退回直接读格
+    // 直接逐格读。以前 13/15 路走"整条线打包成大整数 + 移位取窗口"，
+    // 但 Float64 上的 Math.floor(x * 2^-2k) % 2^18 比直接读 9 格还慢，
+    // 实测 nps 反而低 2.8 倍（16k vs 46k），所以统一走直读。
+    var direct = true;
     var base = [[], [], [], []];
     for (d = 0; d < 4; d++) {
       var lists = lineCells[d];
@@ -143,6 +145,31 @@
       }
     }
 
+    // 每点每方向 9 格的绝对下标（-1 表示出界）。预先算好，
+    // 运行时取窗口就只剩一次数组查表，不用再算坐标和边界判断。
+    var winIdx = new Int32Array(nn * 4 * 9);
+    for (y = 0; y < size; y++) {
+      for (x = 0; x < size; x++) {
+        var pos0 = y * size + x;
+        for (d = 0; d < 4; d++) {
+          var o = (pos0 * 4 + d) * 9;
+          for (k = 0; k < 9; k++) {
+            var wx = x + DX[d] * (k - SPAN), wy = y + DY[d] * (k - SPAN);
+            winIdx[o + k] = (wx >= 0 && wx < size && wy >= 0 && wy < size)
+              ? wy * size + wx : -1;
+          }
+        }
+      }
+    }
+
+    // 同分排序用的「离天元多远」（切比雪夫距离，放大 2 倍避开 .5）
+    var distC = new Int32Array(nn);
+    for (y = 0; y < size; y++) {
+      for (x = 0; x < size; x++) {
+        distC[y * size + x] = Math.max(Math.abs(2 * x - size + 1), Math.abs(2 * y - size + 1));
+      }
+    }
+
     // 半径 2 邻域（含自身）
     var ring = new Array(nn);
     var r = CANDIDATE_RADIUS;
@@ -168,6 +195,8 @@
       px: px,
       py: py,
       ring: ring,
+      winIdx: winIdx,
+      distC: distC,
       candBuf: new Int32Array(nn),
       evalBuf: new Int32Array(nn)
     };
@@ -335,6 +364,25 @@
     return SCORE_BY_IDX[_shapeIndexOf(color, code | (color << 8))];
   }
 
+  // 窗口码 → 形状分 的直查表。_shapeIndexOf 已经带 memo，但每个方向还要
+  // 再查一次 SCORE_BY_IDX；合成一张表省掉那一层间接寻址，热路径里能省 4 次。
+  var _SCORE_TBL = [null, null, null, null];
+
+  function _scoreTable(color) {
+    var t = _SCORE_TBL[color];
+    if (!t) { t = new Int32Array(PACKED_SIZE); t.fill(-1); _SCORE_TBL[color] = t; }
+    return t;
+  }
+
+  /** 窗口码 w4（未叠加中心位）→ color 落在此点的该方向形状分。 */
+  function _scoreFast(color, w4) {
+    var t = _scoreTable(color);
+    var code = w4 | (color << 8);
+    var v = t[code];
+    if (v < 0) { v = SCORE_BY_IDX[_shapeIndexOf(color, code)]; t[code] = v; }
+    return v;
+  }
+
   /* =======================================================================
    * 棋盘
    * ===================================================================== */
@@ -344,17 +392,21 @@
   /** 取 (idx 为中心) 四方向 9 格窗口码，结果放在 _W4。 */
   function _fillWin4(bd, idx) {
     if (bd._direct) {
-      var size = bd.size, g = bd.grid;
-      var x = bd._px[idx], y = bd._py[idx];
-      for (var d = 0; d < 4; d++) {
-        var dx = DX[d], dy = DY[d], code = 0;
-        for (var i = 0; i < 9; i++) {
-          var nx = x + dx * (i - 4), ny = y + dy * (i - 4);
-          var v = (nx >= 0 && nx < size && ny >= 0 && ny < size) ? g[ny * size + nx] : 3;
-          code += v * POW[2 * i];
-        }
-        _W4[d] = code;
-      }
+      var g = bd.grid, W = bd._winIdx, o = idx * 36, code, i, p;
+      // 用移位拼码（2 bit/格）而不是乘以 POW：整数移位比 Float64 乘法快，
+      // 且 18 bit 的结果不会溢出 32 位。
+      code = 0;
+      for (i = 8; i >= 0; i--) { p = W[o + i]; code = (code << 2) | (p < 0 ? 3 : g[p]); }
+      _W4[0] = code;
+      code = 0;
+      for (i = 8; i >= 0; i--) { p = W[o + 9 + i]; code = (code << 2) | (p < 0 ? 3 : g[p]); }
+      _W4[1] = code;
+      code = 0;
+      for (i = 8; i >= 0; i--) { p = W[o + 18 + i]; code = (code << 2) | (p < 0 ? 3 : g[p]); }
+      _W4[2] = code;
+      code = 0;
+      for (i = 8; i >= 0; i--) { p = W[o + 27 + i]; code = (code << 2) | (p < 0 ? 3 : g[p]); }
+      _W4[3] = code;
       return;
     }
     var f = idx << 2, LI = bd._flatLI, IP = bd._flatIP, L = bd._lines;
@@ -367,26 +419,19 @@
   function _pointScoreAt(bd, idx, color) {
     if (bd.grid[idx] !== 0) { _pairAtk = 0; return 0; }
     _fillWin4(bd, idx);
-    var sh = (color << 8);
-    _pairAtk = SCORE_BY_IDX[_shapeIndexOf(color, _W4[0] | sh)]
-      + SCORE_BY_IDX[_shapeIndexOf(color, _W4[1] | sh)]
-      + SCORE_BY_IDX[_shapeIndexOf(color, _W4[2] | sh)]
-      + SCORE_BY_IDX[_shapeIndexOf(color, _W4[3] | sh)];
+    _pairAtk = _scoreFast(color, _W4[0]) + _scoreFast(color, _W4[1])
+      + _scoreFast(color, _W4[2]) + _scoreFast(color, _W4[3]);
     return _pairAtk;
   }
 
   function _pointPairScore(bd, idx, color) {
     if (bd.grid[idx] !== 0) { _pairAtk = 0; _pairDef = 0; return; }
     _fillWin4(bd, idx);
-    var me = color << 8, other = 3 - color, op = other << 8;
-    _pairAtk = SCORE_BY_IDX[_shapeIndexOf(color, _W4[0] | me)]
-      + SCORE_BY_IDX[_shapeIndexOf(color, _W4[1] | me)]
-      + SCORE_BY_IDX[_shapeIndexOf(color, _W4[2] | me)]
-      + SCORE_BY_IDX[_shapeIndexOf(color, _W4[3] | me)];
-    _pairDef = SCORE_BY_IDX[_shapeIndexOf(other, _W4[0] | op)]
-      + SCORE_BY_IDX[_shapeIndexOf(other, _W4[1] | op)]
-      + SCORE_BY_IDX[_shapeIndexOf(other, _W4[2] | op)]
-      + SCORE_BY_IDX[_shapeIndexOf(other, _W4[3] | op)];
+    var other = 3 - color;
+    _pairAtk = _scoreFast(color, _W4[0]) + _scoreFast(color, _W4[1])
+      + _scoreFast(color, _W4[2]) + _scoreFast(color, _W4[3]);
+    _pairDef = _scoreFast(other, _W4[0]) + _scoreFast(other, _W4[1])
+      + _scoreFast(other, _W4[2]) + _scoreFast(other, _W4[3]);
   }
 
   // Zobrist 表（按尺寸缓存；两套 32 位表，合成 53 位置换表键）
@@ -467,6 +512,8 @@
     this._px = geom.px;
     this._py = geom.py;
     this._ring = geom.ring;
+    this._winIdx = geom.winIdx;
+    this._distC = geom.distC;
     this._near = new Int16Array(nn);
     this._lines = this._direct ? null : [
       Float64Array.from(geom.base[0]),
@@ -610,6 +657,8 @@
     b._px = this._px;
     b._py = this._py;
     b._ring = this._ring;
+    b._winIdx = this._winIdx;
+    b._distC = this._distC;
     b._near = this._near.slice();
     b._lines = this._direct ? null : [
       this._lines[0].slice(), this._lines[1].slice(),
@@ -1121,14 +1170,11 @@
     }
   };
 
-  function _cmpScored(a, b, size) {
+  function _cmpScored(a, b, bd) {
     if (b[0] !== a[0]) return b[0] - a[0];
     // 同分时靠天元的优先。否则会一路取最大 x/最大 y，全挤在右下角。
-    var c = (size - 1) / 2;
-    var ax = a[1] % size, ay = (a[1] / size) | 0;
-    var bx = b[1] % size, by = (b[1] / size) | 0;
-    var da = Math.max(Math.abs(ax - c), Math.abs(ay - c));
-    var db = Math.max(Math.abs(bx - c), Math.abs(by - c));
+    var dc = bd._distC;
+    var da = dc[a[1]], db = dc[b[1]];
     if (da !== db) return da - db;
     return a[1] - b[1];
   }
@@ -1161,17 +1207,17 @@
 
     var out, k;
     if (fiveMe.length) {
-      fiveMe.sort(function (a, b) { return _cmpScored(a, b, size); });
+      fiveMe.sort(function (a, b) { return _cmpScored(a, b, bd); });
       return raw ? [[fiveMe[0][0], fiveMe[0][1]]] : [fiveMe[0][1]];
     }
     if (fiveOp.length) {
-      fiveOp.sort(function (a, b) { return _cmpScored(a, b, size); });
+      fiveOp.sort(function (a, b) { return _cmpScored(a, b, bd); });
       if (raw) return fiveOp;
       out = new Array(fiveOp.length);
       for (k = 0; k < fiveOp.length; k++) out[k] = fiveOp[k][1];
       return out;
     }
-    scored.sort(function (a, b) { return _cmpScored(a, b, size); });
+    scored.sort(function (a, b) { return _cmpScored(a, b, bd); });
     var width = depth >= 4 ? cfg.width_deep : (depth >= 2 ? cfg.width_mid : cfg.width_shallow);
     var n = Math.min(width, scored.length);
     if (raw) return scored.slice(0, n);
