@@ -13,7 +13,7 @@ import json
 import os
 import time
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request
 from flask_socketio import SocketIO, emit
 
 from core.collector import record_game
@@ -21,6 +21,11 @@ from .state import STATE
 
 # 实验室访问口令。可用环境变量 GOMOKU_LAB_TOKEN 覆盖。
 LAB_TOKEN = os.environ.get("GOMOKU_LAB_TOKEN", "gomoku-lab")
+
+# 静态前端地址（GitHub Pages）。后端只做 API，页面统一跳转到静态站，
+# 避免「打开 onrender.com 看到旧版页面」的困惑。本地联调可设环境变量覆盖。
+FRONTEND_URL = os.environ.get("GOMOKU_FRONTEND_URL",
+                              "https://pyy-space.github.io/fool-gomoku/")
 
 # 对局上报限流：每 IP 每 GAMES_RATE_WINDOW 秒最多 GAMES_RATE_MAX 局。
 GAMES_RATE_MAX = int(os.environ.get("GOMOKU_GAMES_RATE", "20"))
@@ -92,23 +97,19 @@ def create_app(static_folder: str = "static", template_folder: str = "templates"
     # ------------------------------------------------------------------
     @app.get("/")
     def page_landing():
-        return render_template("landing.html")
+        return redirect(FRONTEND_URL)
 
     @app.get("/hub")
     def page_hub():
-        return render_template("hub.html")
+        return redirect(FRONTEND_URL + "local.html")
 
     @app.get("/local")
     def page_local():
-        return render_template("local.html", profiles=STATE.profiles(),
-                               active="local")
+        return redirect(FRONTEND_URL + "local.html")
 
     @app.get("/lab")
     def page_lab():
-        # 页面本身可打开（彩蛋负责隐蔽），但调参 API 需要 token。
-        # 未解锁时前端显示口令锁，不会直接暴露参数空间。
-        return render_template("lab.html", profiles=STATE.profiles(),
-                               active="lab")
+        return redirect(FRONTEND_URL + "local.html")
 
     # ------------------------------------------------------------------
     # 健康检查 / 平台能力（Render 探活 + 前端探测后端能力用）

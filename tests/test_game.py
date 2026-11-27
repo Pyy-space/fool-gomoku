@@ -175,10 +175,16 @@ class TestWeb(unittest.TestCase):
         cls.client = cls.app.test_client()
 
     def test_pages(self):
-        for path in ("/", "/hub", "/local", "/lab"):
+        # 后端页面统一重定向到静态前端（GitHub Pages），本地也指向线上静态站。
+        for path in ("/", "/local", "/lab"):
             with self.subTest(path=path):
                 r = self.client.get(path)
-                self.assertEqual(r.status_code, 200)
+                self.assertEqual(r.status_code, 302)
+
+    def test_hub_redirects_to_local(self):
+        r = self.client.get("/hub")
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("local.html", r.headers["Location"])
 
     def test_lab_unlock_requires_token(self):
         """实验室调参 API 必须带正确口令。"""
