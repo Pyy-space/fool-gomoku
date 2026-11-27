@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>worker probe</title></head>
+<body>
+<pre id="out">start</pre>
+<script src="static/engine.js"></script>
+<script>
+const out = [];
+function log(s) { out.push(s); document.getElementById("out").textContent = out.join("\n"); }
+window.onerror = (m, u, l, c, e) => log("WINDOW ERROR: " + m + " @" + u + ":" + l);
+
+log("engine=" + (typeof window.GomokuEngine));
+try {
+  const w = new Worker("static/worker.js");
+  log("worker created");
+  w.onerror = (e) => log("WORKER ERROR: " + (e.message || JSON.stringify(e)));
+  w.onmessage = (ev) => {
+    log("WORKER REPLY id=" + ev.data.id + " ok=" + ev.data.ok + " move=" + JSON.stringify(ev.data.move) + " reason=" + ev.data.reason + " wall=" + ev.data.wall_ms);
+    log("RESULT: " + (ev.data && ev.data.ok && ev.data.move ? "PASS" : "FAIL"));
+    w.terminate();
+  };
+  w.postMessage({
+    id: 1, mode: "move", size: 15, rules: "casual", level: 3, config: null,
+    moves: [{ x: 7, y: 7, color: 1 }, { x: 8, y: 8, color: 2 }],
+  });
+  log("posted");
+} catch (e) {
+  log("THROW: " + e.message);
+  log("RESULT: FAIL");
+}
+</script>
+</body>
+</html>

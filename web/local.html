@@ -3,20 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>人机对弈 · GomokuAI</title>
+<title>对弈 · 惜江悅的小助手</title>
 <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
 
 <header class="topbar">
-  <a class="brand" href="hub.html">
+  <a class="brand" href="index.html">
     <span class="mark">◉</span>
-    <span>五子棋 AI<span class="sub"> GomokuAI</span></span>
+    <span>惜江悅的小助手<span class="sub"> 五子棋</span></span>
   </a>
   <nav class="nav">
-    <a href="hub.html" class="back">‹ 模式</a>
+    <a href="index.html" class="back">‹ 首页</a>
   </nav>
-  <div class="conn"><span id="dot" class="dot"></span><span id="connText">连接中…</span></div>
+  <div class="conn"><span id="dot" class="dot on"></span><span id="connText">本地引擎</span></div>
   <span id="ver" class="ver" title="版本">v1.0</span>
 </header>
 
@@ -32,11 +32,9 @@
     </label>
     <label>难度
       <select id="level">
-        <option value="1">1 · 很快（0.15s）</option>
-        <option value="2">2 · 快速（0.4s）</option>
-        <option value="3" selected>3 · 标准（1s）</option>
-        <option value="4">4 · 较强（2.5s）</option>
-        <option value="5">5 · 最强（5s）</option>
+        <option value="1">1 · 敷衍</option>
+        <option value="2" selected>2 · 认真</option>
+        <option value="3">3 · 全力</option>
       </select>
     </label>
     <label>棋盘
@@ -77,9 +75,10 @@
       <span id="turnBadge" class="badge">—</span>
       <span id="stoneCount" class="muted">0 子</span>
       <span class="spacer"></span>
-      <span id="thinking" class="thinking hidden">AI 思考中<span class="dots"></span></span>
+      <span id="thinking" class="thinking hidden">小助手正在想<span class="dots"></span></span>
     </div>
     <div id="board" class="board"></div>
+    <div id="persona" class="persona hidden"></div>
     <div id="result" class="result hidden"></div>
   </div>
 
@@ -88,17 +87,18 @@
     <ol id="moves" class="moves"></ol>
     <h2>提示</h2>
     <p class="small muted">
-      点击棋盘落子。AI 会自动应手。<br>
-      「提示一手」用同一套搜索算出建议点，但不会落子。
+      点击棋盘落子，小助手会自动应手。<br>
+      「提示一手」会在棋盘上标一个发光虚影，告诉你想在哪儿下。
     </p>
   </aside>
 </section>
 </main>
 
-<footer class="foot">本地运行 · 所有路径均为相对路径 · 识别与落子只在本机完成</footer>
+<footer class="foot">纯前端 · 引擎跑在你的浏览器里 · 无需后端</footer>
 
-<script src="static/socket.io.min.js"></script>
 <script src="config.js"></script>
+<script src="static/engine.js"></script>
+<script src="static/persona.js"></script>
 <script src="static/app.js"></script>
 <script>window.PAGE = "local";</script>
 </body>

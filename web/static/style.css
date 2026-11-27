@@ -318,6 +318,28 @@ pre.code {
 .result.lose { border-color: rgba(239,95,107,.5); color: #ff9aa1; }
 .result.draw { border-color: rgba(232,176,75,.5); color: var(--warn); }
 
+/* 台词气泡：AI 说话的地方 */
+.persona {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  background: rgba(255,255,255,.045);
+  border: 1px solid var(--glass-brd);
+  border-left: 3px solid var(--gold);
+  color: var(--text);
+  animation: personaIn .22s ease-out;
+}
+.persona.win { border-left-color: #3ecf8e; }
+.persona.lose { border-left-color: #ef5f6b; }
+.persona.draw { border-left-color: var(--warn); }
+.persona.taunt, .persona.warn { border-left-color: var(--warn); color: var(--warn); }
+@keyframes personaIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
 .thinking { color: var(--warn); font-size: 13px; }
 .dots::after {
   content: ""; animation: dots 1.2s steps(4, end) infinite;

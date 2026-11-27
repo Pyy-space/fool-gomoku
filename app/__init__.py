@@ -11,14 +11,46 @@ import base64
 import io
 import json
 import os
+import time
 
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO, emit
 
+from core.collector import record_game
 from .state import STATE
 
 # 实验室访问口令。可用环境变量 GOMOKU_LAB_TOKEN 覆盖。
 LAB_TOKEN = os.environ.get("GOMOKU_LAB_TOKEN", "gomoku-lab")
+
+# 对局上报限流：每 IP 每 GAMES_RATE_WINDOW 秒最多 GAMES_RATE_MAX 局。
+GAMES_RATE_MAX = int(os.environ.get("GOMOKU_GAMES_RATE", "20"))
+GAMES_RATE_WINDOW = 600
+_RATE_LOCK = None
+_RATE_HITS: dict = {}
+
+
+def _rate_ok(ip: str) -> bool:
+    """每 IP 的滑动窗口限流。空 IP（取不到）一律放行。"""
+    global _RATE_LOCK
+    if _RATE_LOCK is None:
+        import threading
+        _RATE_LOCK = threading.Lock()
+    if not ip:
+        return True
+    now = time.time()
+    with _RATE_LOCK:
+        hits = [t for t in _RATE_HITS.get(ip, []) if now - t < GAMES_RATE_WINDOW]
+        if len(hits) >= GAMES_RATE_MAX:
+            _RATE_HITS[ip] = hits
+            return False
+        hits.append(now)
+        _RATE_HITS[ip] = hits
+        # 顺手清理长期不活跃的 IP，避免字典无限涨
+        if len(_RATE_HITS) > 4096:
+            for k in [k for k, v in _RATE_HITS.items()
+                      if not v or now - v[-1] > GAMES_RATE_WINDOW]:
+                _RATE_HITS.pop(k, None)
+    return True
 
 
 def _lab_ok(data: dict) -> bool:
@@ -216,6 +248,52 @@ def create_app(static_folder: str = "static", template_folder: str = "templates"
         return jsonify({"ok": True,
                         "result": STATE.tuner_benchmark(d.get("config"),
                                                         int(d.get("rounds") or 2))})
+
+    @app.post("/api/games")
+    def api_games_add():
+        """上报一局棋谱（公开接口，前端在浏览器里下完一局后调用）。
+
+        只收对局事实，不收任何个人信息。做基本形状校验和每 IP 限额，
+        防止被当成免费存储刷。
+        """
+        d = request.get_json(silent=True) or {}
+
+        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+        if not _rate_ok(ip):
+            return jsonify({"ok": False, "reason": "上报太频繁，稍后再试"}), 429
+
+        size = int(d.get("size") or 0)
+        rules = str(d.get("rules") or "casual")
+        human_color = int(d.get("human_color") or 0)
+        winner = int(d.get("winner") or 0)
+        moves = d.get("moves") or []
+        config = d.get("config") or {}
+
+        if size not in (13, 15, 19):
+            return jsonify({"ok": False, "reason": "棋盘尺寸不合法"}), 400
+        if rules not in ("casual", "renju"):
+            return jsonify({"ok": False, "reason": "规则不合法"}), 400
+        if human_color not in (1, 2):
+            return jsonify({"ok": False, "reason": "执色不合法"}), 400
+        if winner not in (0, 1, 2):
+            return jsonify({"ok": False, "reason": "胜负不合法"}), 400
+        if not isinstance(moves, list) or not 5 <= len(moves) <= size * size:
+            return jsonify({"ok": False, "reason": "棋谱长度不合法"}), 400
+
+        clean = []
+        for m in moves:
+            try:
+                x, y, c = int(m["x"]), int(m["y"]), int(m["color"])
+            except (KeyError, TypeError, ValueError):
+                return jsonify({"ok": False, "reason": "棋谱格式不合法"}), 400
+            if not (0 <= x < size and 0 <= y < size and c in (1, 2)):
+                return jsonify({"ok": False, "reason": "棋谱坐标不合法"}), 400
+            clean.append({"x": x, "y": y, "color": c})
+
+        record_game(size=size, rules=rules, human_color=human_color,
+                    winner=winner, moves=clean,
+                    config=config if isinstance(config, dict) else {})
+        return jsonify({"ok": True, "count": STATE.games_count()})
 
     @app.get("/api/lab/games")
     def api_lab_games():

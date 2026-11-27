@@ -1,0 +1,183 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>自检 · 前端对弈链路</title>
+<link rel="stylesheet" href="../web/static/style.css">
+<style>#selftest { position: fixed; bottom: 0; left: 0; right: 0; max-height: 40vh; overflow: auto; background: #000; color: #0f0; font: 12px/1.5 monospace; z-index: 9999; padding: 8px; }</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="mark">◉</span><span>自检</span></a>
+  <nav class="nav"><a href="index.html" class="back">‹ 首页</a></nav>
+  <div class="conn"><span id="dot" class="dot on"></span><span id="connText">本地引擎</span></div>
+  <span id="ver" class="ver">v1.0</span>
+</header>
+
+<main class="page">
+<section class="layout">
+  <aside class="panel side">
+    <h2>对局设置</h2>
+    <label>我执
+      <select id="humanColor"><option value="1" selected>黑（先手）</option><option value="2">白（后手）</option></select>
+    </label>
+    <label>难度
+      <select id="level"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option></select>
+    </label>
+    <label>棋盘
+      <select id="boardSize"><option value="15" selected>15</option></select>
+    </label>
+    <label>规则
+      <select id="rules"><option value="casual" selected>休闲</option><option value="renju">连珠</option></select>
+    </label>
+    <div class="row"><button id="btnNew" class="primary">开始新局</button><button id="btnUndo">悔棋</button></div>
+    <div class="row"><button id="btnHint">提示一手</button><button id="btnResign" class="danger">认输</button></div>
+    <h2>AI 分析</h2>
+    <div id="analysis" class="kv small">等待落子…</div>
+    <h2>自我进化</h2>
+    <label class="switchrow"><input type="checkbox" id="learnToggle" checked><span>下完一局后学习</span></label>
+    <div id="learnStatus" class="kv small">加载中…</div>
+  </aside>
+
+  <div class="panel boardwrap">
+    <div class="statusbar">
+      <span id="turnBadge" class="badge">—</span>
+      <span id="stoneCount" class="muted">0 子</span>
+      <span class="spacer"></span>
+      <span id="thinking" class="thinking hidden">小助手正在想<span class="dots"></span></span>
+    </div>
+    <div id="board" class="board"></div>
+    <div id="persona" class="persona hidden"></div>
+    <div id="result" class="result hidden"></div>
+  </div>
+
+  <aside class="panel side">
+    <h2>最近着法</h2>
+    <ol id="moves" class="moves"></ol>
+    <h2>提示</h2>
+    <p class="small muted">自检页，别当真。</p>
+  </aside>
+</section>
+</main>
+
+<footer class="foot">自检</footer>
+<pre id="selftest"></pre>
+
+<script src="../web/static/engine.js"></script>
+<script src="../web/static/persona.js"></script>
+<script src="../web/static/app.js"></script>
+<script>
+window.PAGE = "local";
+</script>
+<script>
+/* 自动下若干手，验证：点击落子 → Worker 搜索 → AI 回应 → 渲染更新 */
+(function () {
+  const out = [];
+  const log = (s) => { out.push(s); document.getElementById("selftest").textContent = out.join("\n"); };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function stones() {
+    const t = document.getElementById("stoneCount").textContent || "";
+    const m = t.match(/(\d+)/);
+    return m ? Number(m[1]) : 0;
+  }
+
+  async function waitStones(n, timeout) {
+    const t0 = Date.now();
+    while (stones() < n) {
+      if (Date.now() - t0 > (timeout || 20000)) return false;
+      await sleep(50);
+    }
+    return true;
+  }
+
+  function occupied() {
+    const set = new Set();
+    document.querySelectorAll("#moves li").forEach((li) => {
+      const m = (li.textContent || "").match(/\((\d+),\s*(\d+)\)/);
+      if (m) set.add(m[1] + "," + m[2]);
+    });
+    return set;
+  }
+
+  /* 从中心往外挑第一个空点，避免点到已占位置导致超时 */
+  function pickFree() {
+    const occ = occupied();
+    const c = 7;
+    const cands = [];
+    for (let r = 0; r <= 7; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = c + dx, y = c + dy;
+          if (x < 0 || x > 14 || y < 0 || y > 14) continue;
+          cands.push([x, y]);
+        }
+      }
+    }
+    for (const [x, y] of cands) if (!occ.has(x + "," + y)) return [x, y];
+    return null;
+  }
+
+  function clickGrid(x, y) {
+    const canvas = document.querySelector("#board canvas");
+    const rect = canvas.getBoundingClientRect();
+    const box = Math.min(rect.width, rect.height);
+    const pad = Math.max(14, box * 0.058);
+    const step = (box - pad * 2) / 14;
+    const cx = rect.left + pad + x * step;
+    const cy = rect.top + pad + y * step;
+    canvas.dispatchEvent(new MouseEvent("click", {
+      bubbles: true, clientX: cx, clientY: cy,
+    }));
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    try {
+      await sleep(300);
+      log("初始子数=" + stones() + " 轮次=" + document.getElementById("turnBadge").textContent);
+
+      // 人执黑，先下天元
+      clickGrid(7, 7);
+      const ok1 = await waitStones(2, 15000);
+      log("人下 (7,7) 后 → 子数=" + stones() + " " + (ok1 ? "OK" : "超时"));
+      log("  AI 落子: " + (document.querySelector("#moves li.ai") || {}).textContent);
+      log("  分析面板: " + document.getElementById("analysis").textContent.replace(/\s+/g, " ").slice(0, 160));
+
+      // 再下两轮
+      for (let i = 0; i < 2; i++) {
+        const p = pickFree();
+        if (!p) { log("没有空点了，结束"); break; }
+        const before = stones();
+        clickGrid(p[0], p[1]);
+        const ok = await waitStones(before + 2, 15000);
+        log(`人下 (${p[0]},${p[1]}) 后 → 子数=${stones()} 轮次=${document.getElementById("turnBadge").textContent} ${ok ? "OK" : "超时"}`);
+      }
+
+      // 悔棋
+      document.getElementById("btnUndo").click();
+      await sleep(400);
+      log("悔棋后子数=" + stones() + " 轮次=" + document.getElementById("turnBadge").textContent);
+
+      // 提示
+      document.getElementById("btnHint").click();
+      await sleep(2500);
+      log("提示后分析=" + document.getElementById("analysis").textContent.replace(/\s+/g, " ").slice(0, 120));
+      log("台词=" + (document.getElementById("persona").textContent || "(空)"));
+
+      const moved = document.querySelectorAll("#moves li").length;
+      log("");
+      log("=== 结果 ===");
+      log("落子记录条数=" + moved);
+      log("canvas 尺寸=" + (() => { const c = document.querySelector("#board canvas"); return c.width + "x" + c.height; })());
+      log("RESULT: " + (moved >= 3 && stones() >= 2 ? "PASS" : "FAIL"));
+    } catch (e) {
+      log("异常: " + (e && e.message));
+      log("RESULT: FAIL");
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,13 +1,5 @@
-/* ============================================================
- * 部署配置（前后端分离）
+/* 部署配置（前后端分离）
  *
- * 把「后端 API 地址」填到下面，末尾不要带斜杠。
- * 例如：window.API_BASE = "https://fool-gomoku.onrender.com";
- *
- * 留空 = 同源：本地 Flask 版（python run.py），或前端与后端同域部署时。
- *
- * 说明：前端是纯静态站（可放 GitHub Pages），后端是 Render 上的
- * Python API。浏览器默认会阻止跨域，但后端已开 CORS，所以这里
- * 只要把地址填对即可。
- * ============================================================ */
-window.API_BASE = "";
+ * 后端 API 地址，末尾不要带斜杠。留空 = 同源（本地 python run.py 时）。
+ */
+window.API_BASE = "https://fool-gomoku.onrender.com";
