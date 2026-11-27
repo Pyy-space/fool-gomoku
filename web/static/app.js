@@ -85,6 +85,7 @@ class BoardView {
     this.interactive = true;
     this.hover = null;
     this.hint = null;
+    this.forbids = [];
     this._clickCb = null;
 
     if (host && host.tagName === "CANVAS") {
@@ -157,6 +158,23 @@ class BoardView {
   }
 
   clearHint() { this.setHint(null); }
+
+  /** 禁手点列表 [{x,y,reason,text}]，在棋盘上画叉。 */
+  setForbidden(list) {
+    const a = list || [];
+    if (a.length === this.forbids.length) {
+      let same = true;
+      for (let i = 0; i < a.length; i++) {
+        const p = a[i], q = this.forbids[i];
+        if (!q || p.x !== q.x || p.y !== q.y) { same = false; break; }
+      }
+      if (same) return;
+    }
+    this.forbids = a;
+    this._draw();
+  }
+
+  clearForbidden() { this.setForbidden([]); }
 
   onClick(cb) { this._clickCb = cb; }
 
@@ -261,6 +279,15 @@ class BoardView {
       this._stone(i % n, Math.floor(i / n), c, rad);
     }
 
+    // 禁手点：红叉 + 半透明红圈，一眼能看出"这些地方不能下"。
+    if (this.forbids && this.forbids.length) {
+      for (const f of this.forbids) {
+        const i = f.y * n + f.x;
+        if (this.grid[i]) continue;
+        this._forbidMark(f.x, f.y, rad);
+      }
+    }
+
     if (this.last) {
       const cx = this._px(this.last.x), cy = this._px(this.last.y);
       ctx.strokeStyle = "#e5484d";
@@ -284,6 +311,38 @@ class BoardView {
       const i = this.hint.y * n + this.hint.x;
       if (!this.grid[i]) this._hintGhost(this.hint.x, this.hint.y, this.side, rad);
     }
+  }
+
+  // 禁手标记：红色圆环 + 中间红叉。比小圆点醒目，又不至于盖住格子。
+  _forbidMark(x, y, rad) {
+    const ctx = this.ctx;
+    const cx = this._px(x), cy = this._px(y);
+    const r = rad * 0.82;
+
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#c8323c";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = "#c8323c";
+    ctx.lineWidth = Math.max(1.4, rad * 0.12);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const d = r * 0.52;
+    ctx.beginPath();
+    ctx.moveTo(cx - d, cy - d);
+    ctx.lineTo(cx + d, cy + d);
+    ctx.moveTo(cx + d, cy - d);
+    ctx.lineTo(cx - d, cy + d);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // 提示虚影：金色半透明棋子 + 呼吸光环，和鼠标 hover 的灰影区分开。
@@ -356,6 +415,12 @@ class BoardView {
 
 function pageLocal() {
   const view = new BoardView($("#board"));
+  // 自检脚本用 ?debug=1 打开页面即可拿到视图实例。正常访问不暴露任何东西。
+  if (window.__DEBUG_GOMOKU || /[?&]debug=1/.test(location.search)) {
+    window.__view = view;
+    window.__board = () => board;
+    window.__draw = () => draw();
+  }
   const P = window.Persona;
 
   let board = null;         // GomokuEngine.Board
@@ -415,6 +480,20 @@ function pageLocal() {
   }
 
   /* ---------- 渲染 ---------- */
+  function refreshForbidden() {
+    // 只有「连珠 + 轮到黑方」时才需要标禁手，其余情况标出来只会干扰视线。
+    const BLACK = E.BLACK === undefined ? 1 : E.BLACK;
+    if (!board || over || rules !== "renju" || board.side !== BLACK) {
+      view.clearForbidden();
+      return;
+    }
+    if (E.forbiddenPoints) {
+      view.setForbidden(E.forbiddenPoints(board));
+    } else {
+      view.clearForbidden();
+    }
+  }
+
   function draw() {
     if (!board) return;
     view.setSize(board.size);
@@ -440,6 +519,7 @@ function pageLocal() {
     });
     list.scrollTop = list.scrollHeight;
 
+    refreshForbidden();
     drawLearn();
   }
 
@@ -524,7 +604,13 @@ function pageLocal() {
     if (busy || over || !board) return;
     if (board.side !== humanColor) return;
     if (!E.isLegal(board, x, y)) {
-      say("这儿不能下。", "warn");
+      // 禁手要说清楚是哪一种，玩家才知道自己错在哪。
+      const why = E.forbiddenReason ? E.forbiddenReason(board, x, y) : null;
+      if (why && E.FORBIDDEN_TEXT) {
+        say("这儿是" + (E.FORBIDDEN_TEXT[why] || "禁手") + "，下不得。", "warn");
+      } else {
+        say("这儿不能下。", "warn");
+      }
       return;
     }
     board.place(x, y);

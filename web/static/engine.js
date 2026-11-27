@@ -817,12 +817,22 @@
   /* =======================================================================
    * 战术层：一步成五 / 必防 / 双威胁 / VCF
    * ===================================================================== */
+  /**
+   * 禁手点在候选里必须被剔除，否则 AI 会推荐"点了不能下"的位置。
+   * 只在连珠黑棋时才有意义，其他情况直接返回 false。
+   */
+  function _isForbiddenIdx(bd, idx, color) {
+    if (bd.rules !== "renju" || color !== BLACK) return false;
+    return _forbiddenAt(bd, idx % bd.size, (idx / bd.size) | 0, BLACK) !== null;
+  }
+
   function winningMoves(bd, color) {
     var buf = bd._geom.candBuf, cnt = _fillNear(bd, buf);
     var out = [];
     for (var i = 0; i < cnt; i++) {
       var idx = buf[i];
       if (bd.grid[idx] !== EMPTY) continue;
+      if (_isForbiddenIdx(bd, idx, color)) continue;
       if (_pointScoreAt(bd, idx, color) >= FIVE_SCORE) out.push(idx);
     }
     return out;
@@ -852,6 +862,7 @@
     for (var i = 0; i < cnt; i++) {
       var idx = buf[i];
       if (bd.grid[idx] !== EMPTY) continue;
+      if (_isForbiddenIdx(bd, idx, color)) continue;
       _fillWin4(bd, idx);
       var sh = color << 8, best = 0;
       for (var d = 0; d < 4; d++) {
@@ -869,6 +880,7 @@
     for (var i = 0; i < cnt; i++) {
       var idx = buf[i];
       if (bd.grid[idx] !== EMPTY) continue;
+      if (_isForbiddenIdx(bd, idx, color)) continue;
       _fillWin4(bd, idx);
       var sh = color << 8;
       var fours = 0, threes = 0, five = false;
@@ -890,6 +902,7 @@
     for (var i = 0; i < cnt; i++) {
       var idx = buf[i];
       if (bd.grid[idx] !== EMPTY) continue;
+      if (_isForbiddenIdx(bd, idx, color)) continue;
       _fillWin4(bd, idx);
       var sh = color << 8, best = 0;
       for (var d = 0; d < 4; d++) {
@@ -967,8 +980,8 @@
   /* =======================================================================
    * 评估
    * ===================================================================== */
-  function _threatPotential(bd, color, buf, cnt) {
-    var grid = bd.grid, cap = 200000, total = 0;
+  function _threatPotential(bd, color, buf, cnt, cap) {
+    var grid = bd.grid, total = 0;
     for (var i = 0; i < cnt; i++) {
       var idx = buf[i];
       if (grid[idx] !== EMPTY) continue;
@@ -978,11 +991,15 @@
     return total;
   }
 
-  function _evaluate(bd, side) {
+  // 防守权重与单点封顶从 cfg 读。以前在这里写死 1.15 / 200000，
+  // 导致调参和在线学习改 defense_weight 完全不起作用。
+  function _evaluate(bd, side, cfg) {
     var buf = bd._geom.evalBuf, cnt = _fillNear(bd, buf);
-    var me = _threatPotential(bd, side, buf, cnt);
-    var opp = _threatPotential(bd, 3 - side, buf, cnt);
-    return me - 1.15 * opp;
+    var cap = (cfg && cfg.point_cap) || 200000;
+    var dw = (cfg && cfg.defense_weight !== undefined) ? cfg.defense_weight : 1.15;
+    var me = _threatPotential(bd, side, buf, cnt, cap);
+    var opp = _threatPotential(bd, 3 - side, buf, cnt, cap);
+    return me - dw * opp;
   }
 
   function _terminalScore(bd, side) {
@@ -1016,7 +1033,9 @@
     sort_mate: 1000000000000,
     root_jitter: 0.08,
     root_pool_tol: 0.02,
-    root_pool_max: 6
+    root_pool_max: 6,
+    q_width: 8,
+    q_node_limit: 4000
   };
 
   // 难度档位。时间预算是上限、不是目标：搜索跑满 max_depth 就提前收工，
@@ -1073,6 +1092,8 @@
     out.root_jitter = +out.root_jitter;
     out.root_pool_tol = +out.root_pool_tol;
     out.root_pool_max = out.root_pool_max | 0;
+    out.q_width = out.q_width | 0;
+    out.q_node_limit = out.q_node_limit | 0;
     out.tt_limit = Math.pow(2, out.tt_bits | 0);
     return out;
   }
@@ -1084,6 +1105,8 @@
     this.ttLimit = cfg.tt_limit;
     this.killers = [];
     this.nodes = 0;
+    this.qnodes = 0;
+    this.qLimit = (cfg.q_node_limit === undefined) ? 4000 : (cfg.q_node_limit | 0);
     this.aborted = false;
     this.deadline = 0;
   }
@@ -1122,7 +1145,14 @@
       _pointPairScore(bd, idx, color);
       var atk = _pairAtk, dfd = _pairDef;
       if (atk >= FIVE_SCORE) { fiveMe.push([atk, idx]); continue; }
-      if (dfd >= FIVE_SCORE) { fiveOp.push([dfd, idx]); continue; }
+      if (dfd >= FIVE_SCORE) {
+        // 堵五连点如果本身是禁手也走不了（这手下去直接判负，不如让搜索继续找别的）。
+        if (_isForbiddenIdx(bd, idx, color)) continue;
+        fiveOp.push([dfd, idx]);
+        continue;
+      }
+      // 禁手点不能走，连排序都不该进——否则 AI 会挑到一个点不下去的位置。
+      if (_isForbiddenIdx(bd, idx, color)) continue;
       var v = atk + Math.floor(dfd * sd);
       if (idx === ttMove) v += cfg.sort_mate;
       else if (killers && (killers[0] === idx || killers[1] === idx)) v += cfg.sort_killer;
@@ -1173,13 +1203,16 @@
     var best = -1, bestV = -1;
     for (var i = 0; i < cnt; i++) {
       var idx = buf[i];
+      if (_isForbiddenIdx(bd, idx, color)) continue;
       _pointPairScore(bd, idx, color);
       var v = _pairAtk + Math.floor(_pairDef * sd);
       if (v > bestV) { bestV = v; best = idx; }
     }
     if (best < 0) {
       var cands = bd.neighbourhood(CANDIDATE_RADIUS);
-      if (cands.length) best = cands[0];
+      for (var j = 0; j < cands.length; j++) {
+        if (!_isForbiddenIdx(bd, cands[j], color)) { best = cands[j]; break; }
+      }
     }
     if (best < 0) return { move: null, score: 0 };
     return { move: { x: best % size, y: (best / size) | 0 }, score: 0 };
@@ -1234,6 +1267,47 @@
     return { score: bestScore, move: bestMv, pool: pool, pv: [bestMv], complete: true };
   };
 
+  // 静态搜索：叶子节点不直接评估，而是先把「成五 / 必须堵五」这条战术链走完。
+  // 五子棋的胜负几乎全由冲四链决定，在冲四半路上直接评估会把
+  // 「对手已经四连我还在算平静局面」这种局面算成大优，这是漏防的主因。
+  // 只处理「一步成五」这一层：再往下扩展的收益远小于成本。
+  Searcher.prototype._quiesce = function (bd, alpha, beta, ply) {
+    if (this.qLimit <= 0) return _evaluate(bd, bd.side, this.cfg);
+    this.qnodes++;
+    if (ply > 12 || this.qnodes > this.qLimit) return _evaluate(bd, bd.side, this.cfg);
+
+    var side = bd.side, opp = 3 - side;
+    var buf = bd._geom.candBuf, cnt = _fillNear(bd, buf);
+
+    // 1) 我能一步成五 → 直接赢
+    for (var i = 0; i < cnt; i++) {
+      var idx = buf[i];
+      if (bd.grid[idx] !== EMPTY) continue;
+      if (_pointScoreAt(bd, idx, side) >= FIVE_SCORE) return MATE - ply;
+    }
+
+    // 2) 对手能一步成五 → 必须堵。堵不住（两个成五点，或唯一堵点是禁手）就输。
+    var block = -1, nBlock = 0, rawBlock = -1;
+    for (var j = 0; j < cnt; j++) {
+      var p = buf[j];
+      if (bd.grid[p] !== EMPTY) continue;
+      if (_pointScoreAt(bd, p, opp) < FIVE_SCORE) continue;
+      nBlock++;
+      if (rawBlock < 0) rawBlock = p;
+      if (block < 0 && !_isForbiddenIdx(bd, p, side)) block = p;
+    }
+    if (nBlock >= 2) return -MATE + ply;
+    if (nBlock === 1) {
+      if (block < 0) return -MATE + ply;      // 唯一堵点是我方禁手，等于堵不住
+      bd._push(block, side);
+      var sc = -this._quiesce(bd, -beta, -alpha, ply + 1);
+      bd._pop();
+      return sc;
+    }
+
+    return _evaluate(bd, side, this.cfg);
+  };
+
   Searcher.prototype._negamax = function (bd, depth, alpha, beta, ply) {
     this.nodes++;
     if ((this.nodes & 127) === 0 && now() > this.deadline) {
@@ -1246,7 +1320,7 @@
       if (_winAtIdx(bd, last)) return -MATE + ply;
     }
 
-    if (depth <= 0) return _evaluate(bd, bd.side);
+    if (depth <= 0) return this._quiesce(bd, alpha, beta, ply);
 
     var key = bd._zobristKey();
     var hit = this.tt.get(key);
@@ -1297,6 +1371,7 @@
   Searcher.prototype.search = function (board) {
     var t0 = now();
     this.nodes = 0;
+    this.qnodes = 0;
     this.aborted = false;
     this.deadline = t0 + this.cfg.time_budget * 1000;
     this.killers = [];
@@ -1503,109 +1578,178 @@
   };
 
   /* =======================================================================
-   * 规则：禁手 / 合法性（与 Python rules.py 等价）
+   * 规则：禁手 / 合法性
+   *
+   * 按 RIF 连珠规则：黑棋除"成五"外，出现下面任一种即判负——
+   *   长连：连成六子以上；
+   *   双四：一手同时形成两个四（冲四、活四都算，一个活四只算一个四）；
+   *   双三：一手同时形成两个活三。
+   * 活三取 RIF 9.3 的定义：这一手之后能再补一子形成活四，而且补的那一点
+   * 本身不能是长连点或双四点（否则这个"三"不算数）。
    * ===================================================================== */
   var FORBIDDEN_OVERLINE = "overline";
   var FORBIDDEN_DOUBLE_FOUR = "double_four";
   var FORBIDDEN_DOUBLE_THREE = "double_three";
+  var FORBIDDEN_TEXT = {
+    overline: "长连禁手",
+    double_four: "双四禁手",
+    double_three: "双三禁手"
+  };
 
-  function _countOpenThrees(bd, x, y, color) {
-    var count = 0;
-    for (var d = 0; d < 4; d++) {
-      var dx = DX[d], dy = DY[d];
-      var line = bd.fullLine(x, y, dx, dy);
-      var sx = x, sy = y, size = bd.size;
-      while (sx - dx >= 0 && sx - dx < size && sy - dy >= 0 && sy - dy < size) {
-        sx -= dx; sy -= dy;
-      }
-      var pos = 0, cx = sx, cy = sy;
-      while (!(cx === x && cy === y)) { pos++; cx += dx; cy += dy; }
-
-      var n = line.length;
-      for (var start = Math.max(0, pos - 4); start <= Math.min(pos, n - 5); start++) {
-        var ok = true, cntColor = 0, cntEmpty = 0;
-        var first = -1, last = -1;
-        for (var k = 0; k < 5; k++) {
-          var v = line[start + k];
-          if (v === 3 - color) { ok = false; break; }
-          if (v === color) {
-            cntColor++;
-            if (first < 0) first = k;
-            last = k;
-          } else if (v === EMPTY) {
-            cntEmpty++;
-          }
-        }
-        if (!ok) continue;
-        if (cntColor !== 3 || cntEmpty !== 2) continue;
-        if (last - first !== 2) continue;
-        var leftFree = start > 0 && line[start - 1] === EMPTY;
-        var rightFree = start + 5 < n && line[start + 5] === EMPTY;
-        if (leftFree || rightFree) { count++; break; }
-      }
+  /** 取方向 d 上过 (x,y) 的整条线，返回 {line, pos, x0, y0, dx, dy}。 */
+  function _lineInfo(bd, x, y, d) {
+    var dx = DX[d], dy = DY[d], size = bd.size, g = bd.grid;
+    var sx = x, sy = y;
+    while (sx - dx >= 0 && sx - dx < size && sy - dy >= 0 && sy - dy < size) {
+      sx -= dx; sy -= dy;
     }
-    return count;
+    var line = [], cx = sx, cy = sy, pos = -1;
+    while (cx >= 0 && cx < size && cy >= 0 && cy < size) {
+      if (cx === x && cy === y) pos = line.length;
+      line.push(g[cy * size + cx]);
+      cx += dx; cy += dy;
+    }
+    return { line: line, pos: pos, x0: sx, y0: sy, dx: dx, dy: dy };
   }
 
-  function _countShapesAt(bd, x, y, color) {
-    var fours = 0, overline = 0;
-    for (var d = 0; d < 4; d++) {
-      var dx = DX[d], dy = DY[d];
-      var line = bd.fullLine(x, y, dx, dy);
-      var sx = x, sy = y, size = bd.size;
-      while (sx - dx >= 0 && sx - dx < size && sy - dy >= 0 && sy - dy < size) {
-        sx -= dx; sy -= dy;
-      }
-      var pos = 0, cx = sx, cy = sy;
-      while (!(cx === x && cy === y)) { pos++; cx += dx; cy += dy; }
+  function _runAtIndex(line, idx, color) {
+    var n = line.length, run = 1, k = idx - 1;
+    while (k >= 0 && line[k] === color) { run++; k--; }
+    k = idx + 1;
+    while (k < n && line[k] === color) { run++; k++; }
+    return run;
+  }
 
-      var n = line.length;
-      // 长连
-      var run = 1;
-      var k = pos - 1;
-      while (k >= 0 && line[k] === color) { run++; k--; }
-      k = pos + 1;
-      while (k < n && line[k] === color) { run++; k++; }
-      if (run >= 6) { overline++; continue; }
+  /** line[idx] 已是 color 时，判断含它那段四连是不是活四（两端皆空）。 */
+  function _isOpenFourAt(line, idx, color, mustInclude) {
+    var n = line.length;
+    if (_runAtIndex(line, idx, color) !== WIN_LEN - 1) return false;
+    var lo = idx, hi = idx;
+    while (lo - 1 >= 0 && line[lo - 1] === color) lo--;
+    while (hi + 1 < n && line[hi + 1] === color) hi++;
+    if (hi - lo + 1 !== WIN_LEN - 1) return false;
+    if (mustInclude !== undefined && (mustInclude < lo || mustInclude > hi)) return false;
+    if (lo - 1 < 0 || hi + 1 >= n) return false;
+    return line[lo - 1] === EMPTY && line[hi + 1] === EMPTY;
+  }
 
-      // 五连窗口数
-      var winWindows = 0;
-      for (var start = Math.max(0, pos - 4); start <= Math.min(pos, n - 5); start++) {
-        var all = true;
-        for (var q = 0; q < 5; q++) {
-          if (line[start + q] !== color) { all = false; break; }
-        }
-        if (all) winWindows++;
+  /**
+   * 该方向的"四"个数。四 = 一个含 pos 的 5 格窗口里有四子一空，且填上那个
+   * 空点恰好成五（不是长连）。活四的两个成五点夹着同一段四连，只算一个四。
+   */
+  function _foursInDir(line, pos, color) {
+    var n = line.length, five = [];
+    var s0 = Math.max(0, pos - (WIN_LEN - 1));
+    var s1 = Math.min(pos, n - WIN_LEN);
+    for (var s = s0; s <= s1; s++) {
+      var cnt = 0, empty = -1, bad = false;
+      for (var k = 0; k < WIN_LEN; k++) {
+        var v = line[s + k];
+        if (v === color) cnt++;
+        else if (v === EMPTY) {
+          if (empty >= 0) { bad = true; break; }
+          empty = s + k;
+        } else { bad = true; break; }
       }
-      if (winWindows === 0) continue;
-      fours += 1;
+      if (bad || cnt !== WIN_LEN - 1 || empty < 0) continue;
+      line[empty] = color;
+      var run = _runAtIndex(line, empty, color);
+      line[empty] = EMPTY;
+      if (run === WIN_LEN) five.push(empty);
     }
-    var openThrees = _countOpenThrees(bd, x, y, color);
-    return { fours: fours, openThrees: openThrees, overline: overline };
+    if (!five.length) return 0;
+    five.sort(function (a, b) { return a - b; });
+    var uniq = [five[0]];
+    for (var i = 1; i < five.length; i++) {
+      if (five[i] !== uniq[uniq.length - 1]) uniq.push(five[i]);
+    }
+    if (uniq.length === 2 && uniq[1] - uniq[0] === WIN_LEN) return 1;
+    return uniq.length;
+  }
+
+  /** 该方向有没有活三：再补一子能形成含 pos 的活四，返回补点下标或 -1。 */
+  function _openThreePoint(line, pos, color, isBadPoint) {
+    var n = line.length;
+    for (var e = 0; e < n; e++) {
+      if (line[e] !== EMPTY) continue;
+      if (e < pos - WIN_LEN || e > pos + WIN_LEN) continue;
+      line[e] = color;
+      var ok = false;
+      try { ok = _isOpenFourAt(line, e, color, pos); } finally { line[e] = EMPTY; }
+      if (!ok) continue;
+      if (isBadPoint && isBadPoint(e)) continue;
+      return e;
+    }
+    return -1;
+  }
+
+  /** 假定 (x,y) 已落 color，统计这一手的四、活三、长连。depth>0 表示复检。 */
+  function _shapeCount(bd, x, y, color, depth) {
+    var infos = [], fours = 0, overline = 0, d;
+    for (d = 0; d < 4; d++) {
+      var li = _lineInfo(bd, x, y, d);
+      infos.push(li);
+      if (_runAtIndex(li.line, li.pos, color) >= WIN_LEN + 1) overline = 1;
+      else fours += _foursInDir(li.line, li.pos, color);
+    }
+    if (overline) return { fours: fours, openThrees: 0, overline: 1 };
+    if (fours >= 2) return { fours: fours, openThrees: 0, overline: 0 };
+
+    var openThrees = 0;
+    for (d = 0; d < 4; d++) {
+      var info = infos[d];
+      var bad = null;
+      if (depth <= 0) {
+        bad = (function (inf) {
+          return function (e) {
+            return _badExtension(bd, inf.x0 + e * inf.dx, inf.y0 + e * inf.dy, color);
+          };
+        })(info);
+      }
+      if (_openThreePoint(info.line, info.pos, color, bad) >= 0) openThrees++;
+    }
+    return { fours: fours, openThrees: openThrees, overline: 0 };
+  }
+
+  /** 活三的补点若本身是长连点或双四点，按 RIF 9.3 这个三就不算。 */
+  function _badExtension(bd, x, y, color) {
+    var idx = y * bd.size + x;
+    if (bd.grid[idx] !== EMPTY) return true;
+    bd.grid[idx] = color;
+    try {
+      var r = _shapeCount(bd, x, y, color, 1);
+      return r.overline > 0 || r.fours >= 2;
+    } finally {
+      bd.grid[idx] = EMPTY;
+    }
+  }
+
+  /** 指定 color 在 (x,y) 落子是否禁手（不看当前轮次）。返回 null 表示不违规。 */
+  function _forbiddenAt(board, x, y, color) {
+    if (board.rules !== "renju" || color !== BLACK) return null;
+    if (!board.inside(x, y)) return null;
+    var idx = y * board.size + x;
+    if (board.grid[idx] !== EMPTY) return null;
+
+    var r;
+    board.grid[idx] = BLACK;
+    try {
+      if (_winAtIdx(board, idx)) return null;      // 成五优先，五连不算禁手
+      r = _shapeCount(board, x, y, BLACK, 0);
+    } finally {
+      board.grid[idx] = EMPTY;
+    }
+
+    if (r.overline) return FORBIDDEN_OVERLINE;
+    if (r.fours >= 2) return FORBIDDEN_DOUBLE_FOUR;
+    if (r.openThrees >= 2) return FORBIDDEN_DOUBLE_THREE;
+    return null;
   }
 
   /** 黑方在 (x,y) 落子是否禁手；成五优先。返回 null 表示不违规。 */
   function forbiddenReason(board, x, y) {
     if (board.rules !== "renju") return null;
-    if (!board.inside(x, y)) return null;
-    if (board.grid[y * board.size + x] !== EMPTY) return null;
-
-    var color = BLACK;
-    var idx = y * board.size + x;
-    board.grid[idx] = color;
-    var overline = 0, fours = 0, openThrees = 0;
-    try {
-      if (_winAtIdx(board, idx)) return null;      // 成五优先
-      var r = _countShapesAt(board, x, y, color);
-      fours = r.fours; openThrees = r.openThrees; overline = r.overline;
-    } finally {
-      board.grid[idx] = EMPTY;
-    }
-
-    if (overline) return FORBIDDEN_OVERLINE;
-    if (fours >= 2) return FORBIDDEN_DOUBLE_FOUR;
-    if (openThrees >= 2) return FORBIDDEN_DOUBLE_THREE;
-    return null;
+    return _forbiddenAt(board, x, y, BLACK);
   }
 
   function isLegal(board, x, y) {
@@ -1626,6 +1770,20 @@
     for (var i = 0; i < pts.length; i++) {
       var p = pts[i];
       if (forbiddenReason(board, p % size, (p / size) | 0) === null) out.push(p);
+    }
+    return out;
+  }
+
+  /** 当前黑方该走时全盘禁手点，用来在棋盘上做标记。返回 [{x,y,reason,text}]。 */
+  function forbiddenPoints(board) {
+    if (board.rules !== "renju" || board.side !== BLACK) return [];
+    var size = board.size, g = board.grid, out = [];
+    var buf = board._geom.candBuf, cnt = _fillNear(board, buf);
+    for (var i = 0; i < cnt; i++) {
+      var idx = buf[i];
+      if (g[idx] !== EMPTY) continue;
+      var r = _forbiddenAt(board, idx % size, (idx / size) | 0, BLACK);
+      if (r) out.push({ x: idx % size, y: (idx / size) | 0, reason: r, text: FORBIDDEN_TEXT[r] });
     }
     return out;
   }
@@ -1785,6 +1943,8 @@
     forbiddenReason: forbiddenReason,
     isLegal: isLegal,
     legalMoves: legalMoves,
+    forbiddenPoints: forbiddenPoints,
+    FORBIDDEN_TEXT: FORBIDDEN_TEXT,
     // 棋型 / 战术工具
     shapeNameOf: shapeNameOf,
     pointShapes: pointShapes,
